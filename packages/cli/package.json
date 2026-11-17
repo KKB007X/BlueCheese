@@ -1,0 +1,12 @@
+{
+  "name": "@bluecheese/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "bc": "./src/main.ts"
+  },
+  "dependencies": {
+    "@bluecheese/agent": "workspace:*",
+    "@bluecheese/core": "workspace:*"
+  }
+}

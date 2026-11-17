@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  html, body { height: 100%; margin: 0; padding: 0; }
+  body { display: flex; flex-direction: column; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); }
+  button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: none; border-radius: 3px; padding: 4px 10px; cursor: pointer; }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+  button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+  input[type=text], input[type=number], textarea { color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 3px 5px; font-family: inherit; font-size: inherit; box-sizing: border-box; }
+
+  /* top bar: power switch + slots + settings */
+  #top { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 10px; font-size: 11px; }
+  #statusDot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--vscode-disabledForeground, #888); }
+  .state-on #statusDot { background: var(--vscode-testing-iconPassed, #3fb950); }
+  .state-starting #statusDot, .state-stopping #statusDot { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .state-error #statusDot { background: var(--vscode-errorForeground, #f14c4c); }
+  button.link { background: transparent; color: var(--vscode-textLink-foreground); padding: 0 4px; font-size: 11px; }
+  button.link:hover { background: transparent; text-decoration: underline; }
+  #connection { padding: 4px 0 8px; margin-bottom: 6px; border-bottom: 1px solid var(--vscode-panel-border); }
+  #connection .crow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .switch { position: relative; width: 38px; height: 20px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .track { position: absolute; inset: 0; border-radius: 20px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); cursor: pointer; transition: .15s; }
+  .track::before { content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; border-radius: 50%; background: var(--vscode-foreground); opacity: .6; transition: .15s; }
+  .switch input:checked + .track { background: var(--vscode-button-background); }
+  .switch input:checked + .track::before { transform: translateX(18px); background: var(--vscode-button-foreground); opacity: 1; }
+  .switch input:disabled + .track { opacity: .5; cursor: default; }
+  #powerState { opacity: .85; }
+  #powerDetail { flex: 1; min-width: 0; font-size: 11px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #slotsBox { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+  #slots { width: 46px; }
+  #gear { margin-left: auto; background: transparent; color: var(--vscode-foreground); font-size: 14px; padding: 0 6px; opacity: .7; }
+  #gear:hover { opacity: 1; background: transparent; }
+  .state-error #powerState { color: var(--vscode-errorForeground); }
+  .projectLine { padding: 3px 0; font-size: 11px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #restartBar { padding: 5px 8px; font-size: 11px; background: var(--vscode-inputValidation-warningBackground); border-bottom: 1px solid var(--vscode-inputValidation-warningBorder); display: flex; gap: 8px; align-items: center; }
+
+  /* chat */
+  #chatView { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 8px; }
+  .msg { margin: 8px 0; padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+  .user { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); }
+  .bot { padding: 2px 4px; }
+  .err { color: var(--vscode-errorForeground); border: 1px solid var(--vscode-errorForeground); }
+  /* what the model is doing: thin lines you can open, no boxes */
+  details.trace, details.tool, details.think, details.helper { font-size: 11.5px; }
+  details.trace summary, details.tool summary, details.think summary, details.helper summary { cursor: pointer; list-style: none; padding: 1px 0; }
+  details summary::-webkit-details-marker { display: none; }
+  details.trace > summary::before, details.tool > summary::before, details.think > summary::before, details.helper > summary::before {
+    content: '\25B8'; display: inline-block; width: 12px; opacity: .5; }
+  details[open].trace > summary::before, details[open].tool > summary::before, details[open].think > summary::before, details[open].helper > summary::before { content: '\25BE'; }
+  details.trace { margin: 4px 0 4px 4px; }
+  details.trace > summary { opacity: .55; }
+  .trace .inner { margin-left: 5px; padding-left: 10px; border-left: 1px solid var(--vscode-panel-border); }
+  .tn { font-family: var(--vscode-editor-font-family); font-weight: 600; }
+  .ta { font-family: var(--vscode-editor-font-family); opacity: .65; margin-left: 6px; }
+  .tt { opacity: .5; margin-left: 8px; }
+  details.tool.running > summary .tt::after, details.helper.running > summary .tt::after { content: ' \2026'; }
+  details.think > summary { opacity: .6; font-style: italic; }
+  .thinking { white-space: pre-wrap; font-style: italic; opacity: .7; margin: 1px 0 5px 12px; max-height: 240px; overflow: auto; }
+  .trace pre.plain { margin: 1px 0 4px 12px; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; opacity: .8;
+    font-family: var(--vscode-editor-font-family); font-size: 11px; }
+  .trace .lbl { opacity: .5; font-size: 10.5px; margin: 2px 0 0 12px; }
+  .trace .line { opacity: .55; margin: 1px 0 1px 12px; }
+  .speed { font-size: 10px; opacity: .55; margin: -2px 6px 6px 8px; font-family: var(--vscode-editor-font-family); min-height: 12px; }
+  .steps { font-family: var(--vscode-editor-font-family); font-size: 11px; opacity: .65; margin: 2px 0 2px 4px; white-space: pre-wrap; }
+  #toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 0; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding: 2px 10px 2px 6px; border-radius: 12px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); background: var(--vscode-input-background); font-size: 12px; }
+  .pill input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .pill .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--vscode-foreground); opacity: .6; box-sizing: border-box; }
+  .pill:has(input:checked) { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+  .pill:has(input:checked) .dot { background: var(--vscode-button-foreground); border-color: var(--vscode-button-foreground); opacity: 1; }
+  .pill:has(input:focus-visible) { outline: 1px solid var(--vscode-focusBorder); }
+  #thinkHint { font-size: 11px; opacity: .7; }
+  #inputRow { display: flex; gap: 6px; padding: 8px; }
+  #box { flex: 1; resize: none; }
+  .col { display: flex; flex-direction: column; gap: 4px; }
+
+  /* settings */
+  #settingsView { flex: 1; overflow-y: auto; padding: 8px; }
+  #estimate { font-size: 11px; padding: 6px 8px; margin-bottom: 8px; border-radius: 4px; background: var(--vscode-editor-inactiveSelectionBackground); }
+  #estimate.warn { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); }
+  .group { margin: 12px 0 4px; font-weight: 600; text-transform: uppercase; font-size: 11px; opacity: .8; letter-spacing: .04em; }
+  .field { margin: 8px 0 12px; }
+  .fhead { display: flex; align-items: center; gap: 6px; }
+  .fhead label { font-weight: 600; flex: 1; }
+  .badge { font-size: 10px; padding: 0 6px; border-radius: 8px; opacity: .85; border: 1px solid var(--vscode-panel-border); white-space: nowrap; }
+  .badge.live { color: var(--vscode-testing-iconPassed, #3fb950); border-color: currentColor; }
+  .badge.restart { color: var(--vscode-editorWarning-foreground, #cca700); border-color: currentColor; }
+  .fdesc { font-size: 11px; opacity: .7; margin: 2px 0 4px; }
+  .ctl { display: flex; align-items: center; gap: 8px; }
+  .ctl input[type=range] { flex: 1; min-width: 0; }
+  .ctl input[type=number] { width: 78px; }
+  .ctl input[type=text] { flex: 1; }
+  .ctl select { color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 3px; padding: 3px 4px; font-family: inherit; font-size: inherit; }
+  .ctl .special { display: inline-flex; align-items: center; gap: 4px; }
+  .hidden { display: none !important; }
+
+  /* ===== palette: red / blue / lime / purple. Flat colours, soft glow, no gradients ===== */
+  :root { --red:#f2546d; --blue:#4f8cff; --lime:#a6e22e; --purple:#a98bff;
+    /* the same colours mixed toward the text colour, so they stay readable as text on light themes too */
+    --red-t: color-mix(in srgb, var(--red) 75%, var(--vscode-foreground));
+    --blue-t: color-mix(in srgb, var(--blue) 75%, var(--vscode-foreground));
+    --lime-t: color-mix(in srgb, var(--lime) 55%, var(--vscode-foreground));
+    --purple-t: color-mix(in srgb, var(--purple) 75%, var(--vscode-foreground));
+    --tint: color-mix(in srgb, var(--blue) 9%, transparent);
+    --line: color-mix(in srgb, var(--vscode-foreground) 14%, transparent); }
+  button { background: color-mix(in srgb, var(--blue) 20%, transparent); color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--blue) 55%, transparent);
+    transition: background .15s, box-shadow .15s, transform .05s; }
+  button:hover { background: color-mix(in srgb, var(--blue) 30%, transparent); box-shadow: 0 0 12px -3px var(--blue); }
+  button:active { transform: translateY(1px); }
+  button.secondary { background: color-mix(in srgb, var(--purple) 14%, transparent); border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
+  button.secondary:hover { background: color-mix(in srgb, var(--purple) 24%, transparent); box-shadow: 0 0 12px -3px var(--purple); }
+  button.link { background: transparent; border-color: transparent; box-shadow: none; color: var(--blue-t); }
+  button.link:hover { background: transparent; box-shadow: none; }
+  input[type=text], input[type=number], textarea, .ctl select { border-color: var(--line); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 45%, transparent), 0 0 12px -3px var(--blue); }
+  input[type=range] { accent-color: var(--purple); }
+  input[type=checkbox] { accent-color: var(--blue); }
+  .state-on #statusDot { background: var(--lime); box-shadow: 0 0 8px var(--lime); }
+  .state-starting #statusDot, .state-stopping #statusDot { background: var(--purple); box-shadow: 0 0 8px var(--purple); }
+  .state-error #statusDot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .state-error #powerState { color: var(--red-t); }
+  #top { border-bottom: 1px solid color-mix(in srgb, var(--blue) 35%, transparent); box-shadow: 0 1px 10px -6px var(--blue); padding-bottom: 4px; }
+  #gear { background: transparent; border-color: transparent; color: var(--vscode-foreground); }
+  #gear:hover { background: transparent; box-shadow: none; color: var(--purple-t); text-shadow: 0 0 8px var(--purple); }
+  .switch .track { border-color: var(--line); }
+  .switch input:checked + .track { background: color-mix(in srgb, var(--blue) 55%, transparent); border-color: var(--blue); box-shadow: 0 0 10px -2px var(--blue); }
+  .switch input:checked + .track::before { background: #fff; }
+  #restartBar { background: color-mix(in srgb, var(--red) 12%, transparent); border: none; border-left: 3px solid var(--red); border-bottom: 1px solid color-mix(in srgb, var(--red) 30%, transparent); }
+  #connection { border-bottom-color: var(--line); }
+
+  /* chat */
+  .user { background: var(--tint); border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent); box-shadow: inset 3px 0 0 var(--blue); }
+  .trace .inner { border-left-color: color-mix(in srgb, var(--blue) 45%, transparent); }
+  details.think > summary { color: var(--purple-t); opacity: .9; }
+  .tn { color: var(--blue-t); }
+  details.helper > summary .tn { color: var(--lime-t); }
+  .speed { color: var(--lime-t); opacity: .8; }
+  .err { position: relative; display: flex; align-items: flex-start; gap: 8px; padding-right: 6px; background: color-mix(in srgb, var(--red) 10%, transparent); border-color: color-mix(in srgb, var(--red) 55%, transparent); color: var(--vscode-foreground); box-shadow: inset 3px 0 0 var(--red), 0 0 12px -6px var(--red); }
+  .err .etxt { flex: 1; min-width: 0; }
+  .err .x { flex: none; background: transparent; border-color: transparent; color: inherit; opacity: .6; width: 20px; height: 20px; padding: 0; line-height: 1; font-size: 15px; border-radius: 50%; }
+  .err .x:hover { background: color-mix(in srgb, var(--red) 25%, transparent); box-shadow: none; opacity: 1; }
+
+  /* composer: think pill above, text box with a small send button inside, context bar and its description at the very bottom */
+  #toolbar { padding: 6px 10px 0; }
+  .pill { border-color: var(--line); background: transparent; }
+  .pill .dot { border-color: var(--purple); opacity: .9; }
+  .pill:has(input:checked) { background: color-mix(in srgb, var(--purple) 16%, transparent); color: var(--vscode-foreground); border-color: color-mix(in srgb, var(--purple) 55%, transparent); box-shadow: 0 0 10px -4px var(--purple); }
+  .pill:has(input:checked) .dot { background: var(--purple); border-color: var(--purple); box-shadow: 0 0 6px var(--purple); }
+  .pill:has(input:focus-visible) { outline: 1px solid var(--purple); }
+  #thinkHint { color: var(--purple-t); }
+  #inputRow { position: relative; display: block; padding: 8px 10px 0; }
+  #box { display: block; width: 100%; padding: 8px 42px 8px 10px; border-radius: 10px; background: var(--vscode-input-background); }
+  #send { position: absolute; right: 18px; bottom: 9px; width: 26px; height: 26px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: var(--blue); border: none; box-shadow: 0 0 10px -2px var(--blue); }
+  #send:hover { background: var(--blue); filter: brightness(1.1); box-shadow: 0 0 14px -1px var(--blue); }
+  #send[data-state=stop] { background: var(--red); box-shadow: 0 0 10px -2px var(--red); }
+  #send[data-state=stop]:hover { background: var(--red); box-shadow: 0 0 14px -1px var(--red); }
+  #send svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  #send[data-state=stop] svg { fill: #fff; stroke: none; }
+
+  /* context bar: the bar on top, its description underneath, all at the bottom of the chat */
+  #ctx { display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 9px 12px 10px; font-size: 10.5px; opacity: 1; }
+  #ctx .bar { display: flex; overflow: hidden; width: 100%; height: 5px; border-radius: 3px; background: var(--line); box-shadow: 0 0 8px -3px var(--blue); }
+  #ctx .bar i { display: block; height: 100%; width: 0; transition: width .25s; }
+  #ctxPin { background: var(--purple); }
+  #ctxUsed { background: var(--blue); }
+  #ctx.warn .bar { box-shadow: 0 0 8px -3px var(--red); }
+  #ctx.warn #ctxUsed { background: var(--red); }
+  #ctx .ctxcap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+  #ctx .key { display: inline-flex; align-items: center; gap: 5px; opacity: .8; }
+  #ctx .kdot { width: 6px; height: 6px; border-radius: 50%; }
+  #ctx .kdot.pin { background: var(--purple); box-shadow: 0 0 6px var(--purple); }
+  #ctx .kdot.used { background: var(--blue); box-shadow: 0 0 6px var(--blue); }
+  #ctxText { margin-left: auto; white-space: nowrap; opacity: .9; }
+  #ctx .ctxnote { opacity: .55; font-size: 10px; line-height: 1.4; }
+
+  /* settings: sections, info buttons, popovers */
+  #settingsView { padding: 8px 10px 16px; }
+  #estimate { background: var(--tint); border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); border-radius: 8px; }
+  #estimate.warn { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  details.sect { margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent); overflow: hidden; }
+  details.sect > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-weight: 600; font-size: 12px; user-select: none; }
+  details.sect > summary::-webkit-details-marker { display: none; }
+  details.sect > summary .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--sc); box-shadow: 0 0 7px var(--sc); flex: none; }
+  details.sect > summary .scount { margin-left: auto; opacity: .5; font-weight: 400; font-size: 11px; }
+  details.sect > summary::after { content: '\25B8'; opacity: .5; font-size: 10px; margin-left: 4px; }
+  details.sect[open] > summary::after { content: '\25BE'; }
+  details.sect[open] > summary { border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--sc) 10%, transparent); }
+  .sbody { padding: 2px 10px 4px; }
+  .field { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .field:last-child { border-bottom: none; }
+  .fhead label { font-weight: 500; }
+  .ap { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .ap.live { background: var(--lime); box-shadow: 0 0 5px var(--lime); } .ap.question { background: var(--blue); box-shadow: 0 0 5px var(--blue); }
+  .ap.reset { background: var(--purple); box-shadow: 0 0 5px var(--purple); } .ap.restart { background: var(--red); box-shadow: 0 0 5px var(--red); }
+  button.info { width: 16px; height: 16px; padding: 0; border-radius: 50%; flex: none; font-size: 10px; font-style: italic; font-family: Georgia, serif; line-height: 1; background: transparent; color: var(--purple-t); border: 1px solid color-mix(in srgb, var(--purple) 60%, transparent); }
+  button.info:hover, button.info.on { background: color-mix(in srgb, var(--purple) 22%, transparent); box-shadow: 0 0 8px -2px var(--purple); }
+  .fdesc { margin: 6px 0 2px; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--purple) 9%, transparent); border-left: 2px solid var(--purple); opacity: .95; }
+  .fdesc .badge { display: inline-block; margin-top: 5px; }
+  .badge.live { color: var(--lime-t); } .badge.question { color: var(--blue-t); } .badge.reset { color: var(--purple-t); } .badge.restart { color: var(--red-t); }
+  .badge.live, .badge.question, .badge.reset, .badge.restart { border-color: currentColor; }
+  .ctl { margin-top: 6px; }
+  .resetRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 11px; }
+  .resetRow span { opacity: .65; }
+  .legend { font-size: 10.5px; opacity: .65; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  .legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+  /* system prompt editor */
+  .ctl.multi { flex-direction: column; align-items: stretch; gap: 6px; }
+  .ctl.multi textarea { width: 100%; min-height: 150px; resize: vertical; padding: 8px 10px; border-radius: 8px; line-height: 1.5; font-size: 11.5px; font-family: var(--vscode-editor-font-family, monospace); }
+  .ptools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+  .ptools .count { margin-left: auto; opacity: .7; font-family: var(--vscode-editor-font-family, monospace); }
+  .ptools .count.warn { color: var(--red-t); opacity: 1; }
+  .pnote { font-size: 10.5px; opacity: .65; line-height: 1.4; }
+
+  /* rendered markdown in the model's replies */
+  .bot.md { white-space: normal; line-height: 1.5; }
+  .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+  .md p { margin: 0 0 8px; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 12px 0 6px; line-height: 1.3; font-weight: 600; }
+  .md h1 { font-size: 1.35em; } .md h2 { font-size: 1.2em; padding-bottom: 3px; border-bottom: 1px solid var(--line); } .md h3 { font-size: 1.08em; color: var(--blue-t); }
+  .md h4, .md h5, .md h6 { font-size: 1em; color: var(--purple-t); }
+  .md strong { font-weight: 700; } .md em { font-style: italic; } .md del { opacity: .65; }
+  .md a { color: var(--blue-t); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--blue) 45%, transparent); }
+  .md a:hover { text-shadow: 0 0 8px var(--blue); }
+  .md ul, .md ol { margin: 0 0 8px; padding-left: 22px; } .md li { margin: 2px 0; } .md li > ul, .md li > ol { margin: 2px 0 2px; }
+  .md li::marker { color: var(--purple-t); }
+  .md li.task { list-style: none; margin-left: -18px; } .md li.task input { margin: 0 6px 0 0; vertical-align: middle; }
+  .md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+  .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--purple); background: color-mix(in srgb, var(--purple) 8%, transparent); border-radius: 0 6px 6px 0; opacity: .95; }
+  .md code { font-family: var(--vscode-editor-font-family, monospace); font-size: .92em; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--blue) 14%, transparent); border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); }
+  .md .codeblock { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-foreground) 5%, transparent)); box-shadow: 0 0 12px -8px var(--blue); }
+  .md .codehead { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 2px 10px; font-size: 10.5px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+  .md .codehead .lang { opacity: .7; font-family: var(--vscode-editor-font-family, monospace); text-transform: lowercase; }
+  .md .codehead button.copy { padding: 0 8px; font-size: 10.5px; line-height: 18px; border-radius: 4px; }
+  .md .codehead button.copy.ok { color: var(--lime-t); border-color: var(--lime); background: color-mix(in srgb, var(--lime) 14%, transparent); box-shadow: 0 0 10px -3px var(--lime); }
+  .md .codeblock pre { margin: 0; padding: 8px 10px; overflow-x: auto; white-space: pre; }
+  .md .codeblock code { display: block; padding: 0; border: none; background: none; font-size: 11.5px; line-height: 1.5; }
+  .md .tablewrap { overflow-x: auto; margin: 0 0 8px; }
+  .md table { border-collapse: collapse; font-size: .95em; }
+  .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+  .md th { background: color-mix(in srgb, var(--blue) 10%, transparent); font-weight: 600; }
+  /* ===== chats drawer, tools view, approvals ===== */
+  body { position: relative; overflow: hidden; }
+  #top .ibtn { background: transparent; border-color: transparent; box-shadow: none; color: var(--vscode-foreground); font-size: 14px; padding: 0 6px; opacity: .75; line-height: 1.4; }
+  #top .ibtn:hover { background: transparent; box-shadow: none; opacity: 1; color: var(--purple-t); text-shadow: 0 0 8px var(--purple); }
+  #top .ibtn.on { opacity: 1; color: var(--blue-t); }
+  #gear { margin-left: 0; }
+  #chatTitle { flex: 1; min-width: 0; text-align: center; font-size: 11px; opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #scrim { position: absolute; inset: 0; z-index: 19; background: color-mix(in srgb, #000 45%, transparent); }
+  #drawer { position: absolute; top: 0; bottom: 0; left: 0; width: min(310px, 88%); z-index: 20; display: flex; flex-direction: column;
+    background: var(--vscode-sideBar-background, var(--vscode-editor-background)); border-right: 1px solid color-mix(in srgb, var(--blue) 40%, transparent); box-shadow: 6px 0 24px -10px #000; }
+  #dhead { display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; }
+  #dproj { flex: 1; min-width: 0; font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dproj small { display: block; font-weight: 400; opacity: .55; font-size: 10px; }
+  #dnew { font-size: 11px; padding: 3px 10px; }
+  #dsearch { margin: 0 10px 6px; width: calc(100% - 20px); }
+  #dlist { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
+  .dgroup { margin: 10px 6px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; opacity: .55; }
+  .crow2 { position: relative; display: block; padding: 6px 8px; margin: 1px 0; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .crow2:hover { background: var(--tint); }
+  .crow2.active { background: color-mix(in srgb, var(--blue) 14%, transparent); border-color: color-mix(in srgb, var(--blue) 40%, transparent); box-shadow: inset 3px 0 0 var(--blue); }
+  .crow2 .ct { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 44px; }
+  .crow2 .cm { font-size: 10px; opacity: .6; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crow2 .cm .saved { color: var(--lime-t); opacity: 1; }
+  .crow2 .acts { position: absolute; right: 4px; top: 4px; display: none; gap: 2px; }
+  .crow2:hover .acts, .crow2:focus-within .acts { display: flex; }
+  .crow2 .acts button { background: transparent; border-color: transparent; padding: 0 5px; font-size: 11px; opacity: .7; }
+  .crow2 .acts button:hover { opacity: 1; box-shadow: none; background: color-mix(in srgb, var(--purple) 22%, transparent); }
+  .crow2 .acts button.sure { background: color-mix(in srgb, var(--red) 30%, transparent); border-color: var(--red); opacity: 1; }
+  .crow2 input.rename { width: 100%; }
+  .dempty { padding: 14px 10px; font-size: 11px; opacity: .6; }
+  .welcome { margin: 24px 10px; font-size: 11.5px; opacity: .6; line-height: 1.5; text-align: center; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px; font-size: 11px; border-radius: 12px; background: transparent; border: 1px solid var(--line); color: var(--vscode-foreground); opacity: .85; }
+  .chip:hover { box-shadow: 0 0 10px -4px var(--blue); opacity: 1; }
+  #toolbar #toolsChip { margin-left: auto; }
+  select.mini { appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit; font-size: 11px; line-height: 1.5; color: var(--vscode-foreground);
+    background-color: transparent; border: 1px solid var(--line); border-radius: 12px; padding: 2px 22px 2px 10px; max-width: 140px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--purple) 50%), linear-gradient(135deg, var(--purple) 50%, transparent 50%);
+    background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+  select.mini:hover { border-color: color-mix(in srgb, var(--purple) 55%, transparent); box-shadow: 0 0 10px -4px var(--purple); }
+  select.mini:focus, select.mini:focus-visible { outline: none; border-color: var(--purple); box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent), 0 0 12px -4px var(--purple); }
+  select.mini option { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); }
+  /* live tool calls */
+  details.tool > summary .ts { margin-left: 8px; font-size: 10px; opacity: .7; font-style: italic; }
+  details.tool > summary .tr { margin-left: 8px; opacity: .55; font-size: 10.5px; }
+  details.tool.err > summary .tr { color: var(--red-t); opacity: .9; }
+  details.tool.running { border-left: 2px solid var(--purple); padding-left: 6px; }
+  details.tool.running > summary .tn { color: var(--purple-t); }
+  pre.stream { max-height: 170px; overflow: auto; margin: 3px 0; }
+  .tick { color: var(--lime-t); } details.tool.err .tick { color: var(--red-t); }
+  #autoPill:has(input:checked) { color: var(--red-t); }
+  .tn small, .src { font-family: var(--vscode-font-family); font-size: 9.5px; font-weight: 400; margin-left: 6px; padding: 0 5px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--purple) 50%, transparent); color: var(--purple-t); }
+
+  /* approval card */
+  .approval { border: 1px solid color-mix(in srgb, var(--purple) 55%, transparent); background: color-mix(in srgb, var(--purple) 9%, transparent); box-shadow: inset 3px 0 0 var(--purple), 0 0 14px -8px var(--purple); white-space: normal; }
+  .approval .ah { font-size: 12px; margin-bottom: 4px; } .approval .ah b { font-family: var(--vscode-editor-font-family); }
+  .approval pre { margin: 4px 0 6px; padding: 5px 7px; max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; border-radius: 6px; background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); font-family: var(--vscode-editor-font-family); }
+  .approval .abtn { display: flex; gap: 6px; flex-wrap: wrap; }
+  .approval .abtn button.deny { border-color: color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .approval .done { font-size: 11px; opacity: .7; }
+
+  /* tools view */
+  #toolsView { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
+  #toolsSum { font-size: 11px; padding: 6px 8px; margin-bottom: 8px; border-radius: 8px; background: var(--tint); border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); line-height: 1.5; }
+  #toolsSum .warn { color: var(--red-t); }
+  .tbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .tgroup { margin: 12px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; opacity: .85; display: flex; align-items: center; gap: 7px; }
+  .tgroup .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--disabledgrey, #888); }
+  .tgroup .sdot.ready { background: var(--lime); box-shadow: 0 0 7px var(--lime); } .tgroup .sdot.connecting { background: var(--purple); box-shadow: 0 0 7px var(--purple); }
+  .tgroup .sdot.error, .tgroup .sdot.denied { background: var(--red); box-shadow: 0 0 7px var(--red); }
+  .tgroup .tsub { margin-left: auto; font-weight: 400; text-transform: none; opacity: .6; font-size: 10.5px; }
+  .tnote { font-size: 10.5px; opacity: .65; line-height: 1.4; margin: 2px 0 6px; word-break: break-word; }
+  .tnote.err { color: var(--red-t); opacity: 1; }
+  .trow { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  .trow.off { opacity: .5; }
+  .trow input { margin-top: 2px; }
+  .trow .tb { flex: 1; min-width: 0; }
+  .trow .tl { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+  .trow .tname { font-family: var(--vscode-editor-font-family); font-weight: 600; font-size: 11.5px; color: var(--blue-t); cursor: pointer; word-break: break-all; }
+  .trow .tdesc { font-size: 11px; opacity: .75; margin-top: 2px; }
+  .trow .tsig { font-family: var(--vscode-editor-font-family); font-size: 10.5px; opacity: .6; margin-top: 2px; word-break: break-all; }
+  .bdg { font-size: 9.5px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); white-space: nowrap; opacity: .85; }
+  .bdg.ro { color: var(--lime-t); border-color: currentColor; } .bdg.ask { color: var(--purple-t); border-color: currentColor; }
+  .bdg.warn { color: var(--red-t); border-color: currentColor; } .bdg.use { color: var(--blue-t); border-color: currentColor; }
+  button.tiny { padding: 0 7px; font-size: 10px; line-height: 16px; border-radius: 8px; }
+</style>
+</head>
+<body>
+  <div id="top">
+    <button id="menu" class="ibtn" title="Chats in this project" aria-label="Chats">☰</button>
+    <span id="statusDot"></span><span id="powerState">Off</span>
+    <button id="quick" class="link hidden">Connect</button>
+    <span id="chatTitle"></span>
+    <button id="toolsBtn" class="ibtn" title="Tools the model can use (built-in and MCP)" aria-label="Tools">🛠</button>
+    <button id="gear" class="ibtn" title="Settings" aria-label="Settings">⚙</button>
+  </div>
+  <div id="restartBar" class="hidden"><span>Settings changed.</span><button id="apply">Restart to apply</button></div>
+
+  <div id="scrim" class="hidden"></div>
+  <div id="drawer" class="hidden" aria-label="Chats">
+    <div id="dhead"><div id="dproj">Chats</div><button id="dnew" title="Start a new chat">+ New chat</button><button id="dclose" class="ibtn" title="Close" aria-label="Close">×</button></div>
+    <input type="text" id="dsearch" placeholder="Search chats">
+    <div id="dlist"></div>
+  </div>
+
+  <div id="chatView">
+    <div id="log"></div>
+    <div id="toolbar">
+      <label class="pill" id="thinkPill" title="Let the model reason before it replies. Slower, and the reasoning uses context and counts toward the reply token limit (raise it, or set it to Unlimited in Settings). Applies to the very next step, even while a question is running."><input type="checkbox" id="think"><span class="dot"></span><span>Think</span></label>
+      <span id="thinkHint"></span>
+      <label class="pill" id="autoPill" title="Run to the end: no reply limit, no tool-step limit, and file changes are made without asking. Stop always works. Keep the project in git."><input type="checkbox" id="auto"><span class="dot"></span><span>Run to the end</span></label>
+      <select id="replyLimit" class="mini" title="Most tokens the model may write in one reply. A file written with write_file is one reply (about 12 tokens per line). Unlimited lets a reply run until the model ends it."></select>
+      <button id="toolsChip" class="chip" title="Tools the model can use. Click to see them.">🛠 <span id="toolsCount">tools</span></button>
+    </div>
+    <div id="inputRow">
+      <textarea id="box" rows="3" placeholder="Ask about this project…  (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="send" data-state="send" title="Send" aria-label="Send"></button>
+    </div>
+    <div id="ctx" title="Context window: how much of the conversation is in RAM. When it fills up, the oldest part slides out to your SSD.">
+      <div class="bar"><i id="ctxPin"></i><i id="ctxUsed"></i></div>
+      <div class="ctxcap">
+        <span class="key"><i class="kdot pin"></i>system prompt</span>
+        <span class="key"><i class="kdot used"></i>conversation</span>
+        <span id="ctxText">context</span>
+      </div>
+      <div class="ctxnote">The pinned system prompt always stays in RAM. When the window fills up, the oldest conversation slides out to your SSD. The bar turns red above 85%.</div>
+    </div>
+  </div>
+
+  <div id="toolsView" class="hidden">
+    <div id="toolsSum"></div>
+    <div class="tbar"><button id="mcpConfig" class="secondary" title="Open (and create) .bluecheese/mcp.json">MCP servers config</button><button id="mcpReload" class="secondary" title="Read the config again and reconnect the servers">Reload servers</button></div>
+    <div id="toolsList"></div>
+    <div class="tnote">Turning a tool off hides it from the model in new chats and refuses it at once in this one. A chat that is already running was told about its tools when it started; it hears about changes with its next question.</div>
+  </div>
+
+  <div id="settingsView" class="hidden">
+    <div id="connection">
+      <div class="crow"><label class="switch" title="Connect or disconnect BlueCheese. It starts its own API container; roaster serve must already be running."><input type="checkbox" id="power"><span class="track"></span></label><div id="powerDetail"></div></div>
+      <div class="crow"><div id="slotsBox" title="Slots BlueCheese may use at once: 1 for the main conversation plus helpers for subtasks. The rest of your server's slots stay free.">Slots <input type="number" id="slots" min="1" max="16" step="1" value="4"></div></div>
+      <div id="project" class="projectLine hidden"></div>
+    </div>
+    <div id="estimate"></div>
+    <div id="fields"></div>
+    <div class="legend"><span>Tap <b>i</b> on a setting for details.</span><span><i style="background:var(--lime)"></i>applies now</span><span><i style="background:var(--blue)"></i>next question</span><span><i style="background:var(--purple)"></i>next conversation</span><span><i style="background:var(--red)"></i>needs restart</span></div>
+  </div>
+
+<script nonce="{{nonce}}">
+  var vscode = acquireVsCodeApi();
+  var $ = function (id) { return document.getElementById(id); };
+  var log = $('log'), box = $('box'), sendBtn = $('send');
+  var busy = false, trace = null, status = '';
+  var SEND_ICON = '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>', STOP_ICON = '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  var SECT_COLORS = ['#4f8cff', '#a98bff', '#a6e22e', '#f2546d'];   // blue, purple, lime, red
+  var fields = [], values = {}, power = { state: 'off', detail: '', serve: 'none' }, restartNeeded = false;
+  var toolSource = {}, chatState = { id: '', title: '', project: '', chats: [] };
+  var lastNum = {}; // the last ordinary number of a field, so leaving "Unlimited" brings it back
+  var APPLIES = { live: 'applies now', question: 'next question', reset: 'next conversation', restart: 'needs restart' };
+
+  /* ---------- chat ---------- */
+  function add(cls, text) {
+    var d = document.createElement('div');
+    d.className = 'msg ' + cls; d.textContent = text;
+    log.appendChild(d); log.scrollTop = log.scrollHeight;
+    return d;
+  }
+  function addErr(text) {
+    var d = el('div', 'msg err'), t = el('span', 'etxt', text), x = el('button', 'x', '\u00d7');
+    x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss');
+    x.addEventListener('click', function () { d.remove(); });
+    d.appendChild(t); d.appendChild(x); log.appendChild(d); log.scrollTop = log.scrollHeight;
+    return d;
+  }
+  function setBusy(b) {
+    busy = b;
+    sendBtn.innerHTML = b ? STOP_ICON : SEND_ICON;
+    sendBtn.dataset.state = b ? 'stop' : 'send';
+    sendBtn.title = b ? 'Stop' : 'Send'; sendBtn.setAttribute('aria-label', sendBtn.title);
+    if (!b) finishTrace();
+  }
+  function submit() {
+    var t = box.value.trim();
+    if (!t) return;
+    add('user', t); box.value = ''; newTrace();
+    vscode.postMessage({ type: 'ask', text: t });
+  }
+  sendBtn.addEventListener('click', function () { if (busy) vscode.postMessage({ type: 'stop' }); else submit(); });
+  setBusy(false);
+  box.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!busy) submit(); }
+  });
+
+  /* ---------- power ---------- */
+  var LABEL = { off: 'Off', starting: 'Connecting…', on: 'On', stopping: 'Stopping…', error: 'Error' };
+  function renderPower() {
+    $('powerState').textContent = LABEL[power.state] || power.state;
+    $('powerDetail').textContent = power.detail || '';
+    $('powerDetail').title = power.detail || '';
+    $('power').checked = power.state === 'on' || power.state === 'starting';
+    $('power').disabled = power.state === 'stopping';
+    $('quick').classList.toggle('hidden', !(power.state === 'off' || power.state === 'error'));
+    $('quick').textContent = power.state === 'error' ? 'Retry' : 'Connect';
+    document.body.className = 'state-' + power.state;
+    $('restartBar').classList.toggle('hidden', !(restartNeeded && (power.state === 'on' || power.state === 'starting')));
+    if (power.state === 'off') restartNeeded = false;
+  }
+  $('quick').addEventListener('click', function () { vscode.postMessage({ type: 'power', on: true }); });
+  $('power').addEventListener('change', function () { vscode.postMessage({ type: 'power', on: $('power').checked }); });
+  $('apply').addEventListener('click', function () { restartNeeded = false; renderPower(); vscode.postMessage({ type: 'restart' }); });
+  /* ---------- views: chat, tools, settings ---------- */
+  var view = 'chat';
+  function showView(v) {
+    view = v;
+    $('chatView').classList.toggle('hidden', v !== 'chat');
+    $('toolsView').classList.toggle('hidden', v !== 'tools');
+    $('settingsView').classList.toggle('hidden', v !== 'settings');
+    $('gear').classList.toggle('on', v === 'settings');
+    $('toolsBtn').classList.toggle('on', v === 'tools');
+    closeDrawer();
+  }
+  $('gear').addEventListener('click', function () { showView(view === 'settings' ? 'chat' : 'settings'); });
+  $('toolsBtn').addEventListener('click', function () { showView(view === 'tools' ? 'chat' : 'tools'); });
+  $('toolsChip').addEventListener('click', function () { showView('tools'); });
+  $('mcpConfig').addEventListener('click', function () { vscode.postMessage({ type: 'mcpConfig' }); });
+  $('mcpReload').addEventListener('click', function () { vscode.postMessage({ type: 'mcpReload' }); });
+
+  /* ---------- settings ---------- */
+  function lowest(f) { return f.numMin !== undefined ? f.numMin : f.min; }   // lowest ordinary number (special values excluded)
+  function clamp(f, v) {
+    if (isNaN(v)) return null;
+    if (f.type === 'integer') v = Math.round(v);
+    var lo = lowest(f);
+    if (lo !== undefined && v < lo) v = lo;
+    if (f.max !== undefined && v > f.max) v = f.max;
+    return v;
+  }
+  function commit(f, v) {
+    values[f.key] = v;
+    if (f.key === 'slots') $('slots').value = v;
+    if (f.key === 'think') renderThink();
+    if (f.key === 'answerTokens' || f.key === 'maxSteps' || f.key === 'edits.approval') renderRun();
+    if (f.applies === 'restart') restartNeeded = true; // everything else reaches the running conversation by itself
+    renderPower(); estimate();
+    vscode.postMessage({ type: 'setting', key: f.key, value: v });
+  }
+  function renderThink() {
+    $('think').checked = !!values['think'];
+    $('thinkHint').textContent = values['think'] ? 'reasoning first: slower' : '';
+  }
+  $('think').addEventListener('change', function () {
+    var f = fields.filter(function (x) { return x.key === 'think'; })[0] || { key: 'think', applies: 'live' };
+    commit(f, $('think').checked);
+  });
+  function estimate() {
+    var ctx = +values['api.context'] || 0, slots = +values['slots'] || 1;
+    var hctx = +values['helpers.context'] || 0, helpers = values['helpers.enabled'] ? Math.max(0, slots - 1) : 0;
+    var mainMb = ctx * 0.039 + 65;                  // MB: ~40 KB per context token + ~65 MB fixed
+    var helperMb = hctx * 0.039 + 65;
+    var totalGb = (mainMb + helpers * helperMb) / 1024;
+    $('estimate').textContent = 'Slots in use (worst case, taken only when needed): main ' + Math.round(mainMb) + ' MB + ' + helpers +
+      ' helper' + (helpers === 1 ? '' : 's') + ' \u00d7 ' + Math.round(helperMb) + ' MB = ' + totalGb.toFixed(1) + ' GB of your server\u2019s memory. ' +
+      (slots > 1 && !values['helpers.enabled'] ? 'Helpers are off, so only 1 slot is used.' : 'Your server needs at least ' + (helpers + 1) + ' free slot' + (helpers ? 's' : '') + '.');
+  }
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  function control(f) {
+    var ctl = el('div', 'ctl'), v = values[f.key];
+    if (f.type === 'boolean') {
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!v;
+      cb.addEventListener('change', function () { commit(f, cb.checked); });
+      ctl.appendChild(cb);
+    } else if (f.enum) {
+      var dd = document.createElement('select');
+      f.enum.forEach(function (val, k) { var o = document.createElement('option'); o.value = val; o.textContent = (f.enumLabels && f.enumLabels[k]) || val; dd.appendChild(o); });
+      dd.value = v === undefined || v === null ? f.default : v;
+      dd.addEventListener('change', function () { commit(f, dd.value); });
+      ctl.appendChild(dd);
+    } else if (f.type === 'string' && f.multiline) {
+      return promptEditor(f, ctl, v);
+    } else if (f.type === 'string') {
+      var tx = document.createElement('input'); tx.type = 'text'; tx.value = v === undefined || v === null ? '' : v;
+      tx.addEventListener('change', function () { commit(f, tx.value.trim()); });
+      ctl.appendChild(tx);
+    } else {
+      var specials = f.special || [];
+      var special = function (x) { return specials.filter(function (sp) { return sp.value === x; })[0]; };
+      var lo = lowest(f);
+      if (!special(v)) lastNum[f.key] = v;
+      else if (lastNum[f.key] === undefined) lastNum[f.key] = f.numDefault !== undefined ? f.numDefault : lo;
+      var shown = special(v) ? lastNum[f.key] : v;
+
+      var num = document.createElement('input'); num.type = 'number'; num.value = shown;
+      if (lo !== undefined) num.min = lo;
+      if (f.max !== undefined) num.max = f.max;
+      num.step = f.step || (f.type === 'integer' ? 1 : 'any');
+      var range = null;
+      if (f.slider) { // only continuous values (temperature, top-p, ...) get a slider; counts and sizes are typed
+        range = document.createElement('input'); range.type = 'range'; range.min = f.min; range.max = f.max; range.step = f.step || 1; range.value = shown;
+        range.addEventListener('input', function () { num.value = range.value; values[f.key] = +range.value; estimate(); });
+        range.addEventListener('change', function () { var c = clamp(f, +range.value); lastNum[f.key] = c; commit(f, c); });
+      }
+      num.addEventListener('change', function () {
+        var c = clamp(f, parseFloat(num.value));
+        if (c === null) { num.value = lastNum[f.key]; return; }
+        num.value = c; if (range) range.value = c; lastNum[f.key] = c; commit(f, c);
+      });
+
+      // "Unlimited" / "Never" / "Same as slots": one special value = a checkbox, several = a drop-down
+      var apply = function () { var on = !!special(values[f.key]); num.classList.toggle('hidden', on); if (range) range.classList.toggle('hidden', on); };
+      if (specials.length === 1) {
+        var wrap = el('label', 'special'); var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!special(v);
+        cb.addEventListener('change', function () {
+          if (cb.checked) commit(f, specials[0].value);
+          else { var back = clamp(f, lastNum[f.key]); num.value = back; if (range) range.value = back; commit(f, back); }
+          apply();
+        });
+        wrap.appendChild(cb); wrap.appendChild(el('span', '', specials[0].label)); ctl.appendChild(wrap);
+      } else if (specials.length > 1) {
+        var sel = document.createElement('select');
+        var o0 = document.createElement('option'); o0.value = 'num'; o0.textContent = 'Number'; sel.appendChild(o0);
+        specials.forEach(function (sp) { var o = document.createElement('option'); o.value = String(sp.value); o.textContent = sp.label; sel.appendChild(o); });
+        sel.value = special(v) ? String(v) : 'num';
+        sel.addEventListener('change', function () {
+          if (sel.value === 'num') { var back = clamp(f, lastNum[f.key]); num.value = back; if (range) range.value = back; commit(f, back); }
+          else commit(f, Number(sel.value));
+          apply();
+        });
+        ctl.appendChild(sel);
+      }
+      if (range) ctl.appendChild(range);
+      ctl.appendChild(num);
+      apply();
+    }
+    return ctl;
+  }
+  /** UTF-8 size of a text: the model server limits the prompt in bytes. */
+  function byteLen(t) {
+    var n = 0;
+    for (var i = 0; i < t.length; i++) {
+      var c = t.charCodeAt(i);
+      if (c < 0x80) n += 1; else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c < 0xdc00) { n += 4; i++; } else n += 3;
+    }
+    return n;
+  }
+  /** The system prompt as a text area. It shows what the model really gets: the built-in text until you change it. */
+  function promptEditor(f, ctl, saved) {
+    var dflt = f.defaultText || '';
+    ctl.classList.add('multi');
+    var ta = document.createElement('textarea'); ta.id = 'sysPrompt'; ta.spellcheck = false;
+    ta.value = saved ? saved : dflt; ta.placeholder = 'Instructions for the model…';
+    var tools = el('div', 'ptools'), count = el('span', 'count', '');
+    var restore = el('button', 'secondary', 'Restore default'); restore.type = 'button'; restore.title = 'Go back to the built-in prompt';
+    var now = el('button', 'secondary', 'Apply to a new chat'); now.type = 'button'; now.title = 'Save, then open a new chat so the model sees it. The current chat stays in the list.';
+    var note = el('div', 'pnote', '');
+    var shown = function () { return ta.value.trim() === dflt.trim() ? '' : ta.value.trim(); };   // the built-in text is stored as empty
+    var refresh = function () {
+      var b = byteLen(ta.value);
+      count.textContent = b + ' B \u00b7 ~' + Math.round(b / 3.4) + ' tokens';
+      count.classList.toggle('warn', b > 2000);
+      count.title = b > 2000 ? 'A long prompt leaves less room for code in the first message.' : '';
+      restore.disabled = ta.value.trim() === dflt.trim();
+      note.textContent = shown() ? 'Custom prompt. The tool list is added after it automatically.' : 'Using the built-in prompt. The tool list is added after it automatically.';
+    };
+    var save = function () { var t = shown(); if (t !== (values[f.key] || '')) commit(f, t); refresh(); };
+    ta.addEventListener('input', refresh);
+    ta.addEventListener('change', save);
+    restore.addEventListener('click', function () { ta.value = dflt; save(); });
+    now.addEventListener('click', function () { save(); vscode.postMessage({ type: 'newChat' }); showView('chat'); });
+    tools.appendChild(restore); tools.appendChild(now); tools.appendChild(count);
+    ctl.appendChild(ta); ctl.appendChild(tools); ctl.appendChild(note);
+    refresh();
+    return ctl;
+  }
+  function renderSettings() {
+    var host = $('fields'), openState = {};
+    [].forEach.call(host.querySelectorAll('details.sect'), function (d) { openState[d.dataset.g] = d.open; });
+    host.textContent = '';
+    var groups = [], byGroup = {};
+    fields.forEach(function (f) {
+      if (f.panel === false) return; // e.g. Think: it is the toggle next to the chat box
+      if (!byGroup[f.group]) { byGroup[f.group] = []; groups.push(f.group); }
+      byGroup[f.group].push(f);
+    });
+    groups.forEach(function (g, gi) {
+      var sect = el('details', 'sect'); sect.dataset.g = g;
+      sect.style.setProperty('--sc', SECT_COLORS[gi % SECT_COLORS.length]);
+      sect.open = openState[g] !== undefined ? openState[g] : g !== 'Docker';
+      var sum = el('summary', ''); sum.appendChild(el('span', 'sdot')); sum.appendChild(el('span', '', g));
+      sum.appendChild(el('span', 'scount', String(byGroup[g].length))); sect.appendChild(sum);
+      var body = el('div', 'sbody'); sect.appendChild(body);
+      byGroup[g].forEach(function (f) {
+        var wrap = el('div', 'field');
+        var head = el('div', 'fhead'); head.appendChild(el('label', '', f.label));
+        var ap = el('span', 'ap ' + f.applies); ap.title = APPLIES[f.applies] || f.applies; head.appendChild(ap);
+        var info = el('button', 'info', 'i'); info.type = 'button'; info.title = 'What is this?'; info.setAttribute('aria-label', 'About ' + f.label);
+        head.appendChild(info); wrap.appendChild(head);
+        var desc = el('div', 'fdesc hidden', f.description);
+        desc.appendChild(document.createElement('br'));
+        desc.appendChild(el('span', 'badge ' + f.applies, APPLIES[f.applies] || f.applies));
+        info.addEventListener('click', function () { var h = desc.classList.toggle('hidden'); info.classList.toggle('on', !h); });
+        wrap.appendChild(desc);
+        wrap.appendChild(control(f));
+        body.appendChild(wrap);
+      });
+      host.appendChild(sect);
+    });
+    var slots = fields.filter(function (f) { return f.key === 'slots'; })[0];
+    if (slots) { $('slots').min = slots.min; $('slots').max = slots.max; $('slots').value = values['slots']; }
+    renderThink(); renderRun(); estimate();
+  }
+  $('slots').addEventListener('change', function () {
+    var f = fields.filter(function (x) { return x.key === 'slots'; })[0];
+    var c = f ? clamp(f, parseFloat($('slots').value)) : null;
+    if (c === null) { $('slots').value = values['slots']; return; }
+    $('slots').value = c; commit(f, c); renderSettings();
+  });
+
+  /* ---------- what the model is doing: thin lines you can open, no boxes ---------- */
+  var trace = null, live = null, q = null;
+  function sec(ms) { return (ms / 1000).toFixed(1) + 's'; }
+  function kfmt(n) { return n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
+  function f1(x) { return x === null || x === undefined || !isFinite(x) ? '\u2013' : x.toFixed(1); }
+  function nearBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 80; }
+  function keepDown(was) { if (was) log.scrollTop = log.scrollHeight; }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+  function newTrace() {
+    finishTrace();
+    var d = el('details', 'trace'); d.open = true;
+    var sum = el('summary', '', 'working\u2026'), body = el('div', 'inner');
+    d.appendChild(sum); d.appendChild(body); log.appendChild(d); log.scrollTop = log.scrollHeight;
+    trace = { root: d, sum: sum, body: body, t0: Date.now(), tools: 0, helpers: 0, names: [], agents: { 0: { box: body, cur: null } } };
+    q = { t0: Date.now(), preTok: 0, preMs: 0, decTok: 0, decMs: 0 };
+  }
+  function traceSummary(done) {
+    if (!trace) return;
+    var parts = [];
+    if (done && trace.names && trace.names.length) parts.push(trace.names.slice(0, 5).join(' \u2192 ') + (trace.names.length > 5 ? ' \u2192 \u2026' : ''));
+    if (trace.tools) parts.push(plural(trace.tools, 'tool call'));
+    if (trace.helpers) parts.push(plural(trace.helpers, 'helper'));
+    if (done) parts.push(sec(Date.now() - trace.t0));
+    trace.sum.textContent = parts.length ? parts.join(' \u00b7 ') : (done ? 'steps' : 'working\u2026');
+  }
+  /** Question over: collapse the activity into one quiet line (or drop it if nothing happened). */
+  function finishTrace() {
+    if (live) { finalizeSpeed(live.speed); live = null; }
+    if (!trace) return;
+    if (!trace.body.children.length) trace.root.remove();
+    else { trace.root.open = false; traceSummary(true); }
+    trace = null;
+  }
+  function agentOf(n) {
+    if (!trace) newTrace();
+    var a = trace.agents[n];
+    if (a) return a;
+    // a helper: nested inside the tool line that sent it (explore), collapsed
+    var main = trace.agents[0].cur;
+    var d = el('details', 'helper running'), sum = el('summary', ''), inner = el('div', 'inner');
+    sum.appendChild(el('span', 'tn', 'helper ' + n)); var st = el('span', 'tt', ''); sum.appendChild(st);
+    d.appendChild(sum); d.appendChild(inner);
+    (main && main.tool ? main.tool.body : trace.body).appendChild(d);
+    trace.helpers++; traceSummary();
+    a = trace.agents[n] = { box: inner, cur: null, det: d, st: st, n: n, steps: 0, t0: Date.now() };
+    return a;
+  }
+
+  function toolText(call) {
+    var args = call.args || {}, t;
+    if (call.name === 'explore') t = plural(String(args.questions || '').split('\n').filter(function (x) { return x.trim(); }).length, 'question');
+    else if (typeof args.path === 'string' && typeof args.content === 'string') t = args.path + ' \u00b7 ' + plural(args.content.split('\n').length, 'line') + (args.append ? ' (append)' : '');   // not the code itself
+    else if (typeof args.path === 'string' && typeof args.old === 'string') t = args.path + ' \u00b7 edit';
+    else if (typeof args.path === 'string' && args.start !== undefined) t = args.path + ' \u00b7 lines ' + args.start + '\u2013' + args.end;
+    else t = Object.keys(args).map(function (k) { var v = args[k]; return typeof v === 'string' ? v : JSON.stringify(v); }).join(' ');
+    t = t.replace(/\s+/g, ' ');
+    return t.length > 70 ? t.slice(0, 70) + '\u2026' : t;
+  }
+  function plain(parent, label, text) { parent.appendChild(el('div', 'lbl', label)); parent.appendChild(el('pre', 'plain', text)); }
+  /** A tool as one line: name, what it was asked, how long. Open it for the full call and result. */
+  function fillTool(det, sum, body, e, ms, t) {
+    if (t && t.timer) clearInterval(t.timer);
+    sum.textContent = '';
+    Array.prototype.slice.call(body.children).forEach(function (ch) { if (!ch.classList.contains('helper')) ch.remove(); });   // the streamed text and the early call go; helpers (explore) stay
+    var tnEl = el('span', 'tn', e.call.name), src = e.source || toolSource[e.call.name];
+    if (src && src !== 'builtin') tnEl.appendChild(el('small', '', 'mcp \u00b7 ' + src));
+    var bad = typeof e.observation === 'string' && (/^Error/.test(e.observation) || /declined/.test(e.observation));
+    sum.appendChild(tnEl); sum.appendChild(el('span', 'ta', toolText(e.call))); sum.appendChild(el('span', 'tt', sec(ms)));
+    if (e.observation !== undefined) {
+      var first = e.observation.replace(/\s+/g, ' ').trim(), r = el('span', 'tr', '');
+      r.appendChild(el('span', 'tick', bad ? '\u2717 ' : '\u2713 ')); r.appendChild(document.createTextNode(first.length > 60 ? first.slice(0, 60) + '\u2026' : first));
+      sum.appendChild(r);
+    }
+    det.classList.toggle('err', bad);
+    var call = el('div', ''); plain(call, 'call' + (e.call.repaired ? ' \u00b7 repaired' : ''), fmtArgs(e.call.args)); body.insertBefore(call, body.firstChild);
+    if (e.observation !== undefined) plain(body, 'result \u00b7 ' + e.observationBytes + ' B', e.observation);
+    det.classList.remove('running'); det.open = false;
+  }
+  function makeTool(box) {
+    var det = el('details', 'tool running'), sum = el('summary', ''), body = el('div', 'inner');
+    var tn = el('span', 'tn', 'calling a tool'), ta = el('span', 'ta', ''), tt = el('span', 'tt', ''), ts = el('span', 'ts', 'writing the call\u2026');
+    sum.appendChild(tn); sum.appendChild(ta); sum.appendChild(tt); sum.appendChild(ts);
+    det.appendChild(sum); det.appendChild(body); det.open = true; box.appendChild(det);   // open while it is written and run: you see what it does as it does it
+    var t = { det: det, sum: sum, body: body, t0: Date.now(), tn: tn, ta: ta, tt: tt, ts: ts, stream: null, paint: 0, callBox: null };
+    t.timer = setInterval(function () { tt.textContent = sec(Date.now() - t.t0); }, 250);
+    return t;
+  }
+  /** The call as the model writes it: raw text, growing. For write_file this is the code appearing. */
+  function streamTool(c) {
+    var t = c.tool; if (!t) return;
+    var now = Date.now(); if (now - t.paint < 90) return; t.paint = now;
+    var raw = fromMark(c.buf);   // exactly what the model wrote, tags included; only narration before the call is left out
+    if (!t.stream) { t.stream = el('pre', 'plain stream', ''); t.body.appendChild(t.stream); }
+    var nm = /"name"\s*:\s*"([\w-]+)"/.exec(raw) || /<function=([\w-]+)>/.exec(raw);
+    if (nm) t.tn.textContent = nm[1];
+    var atEnd = t.stream.scrollTop + t.stream.clientHeight >= t.stream.scrollHeight - 8;
+    t.stream.textContent = raw; if (atEnd) t.stream.scrollTop = t.stream.scrollHeight;
+    t.ts.textContent = 'writing the call\u2026 ' + kfmt(raw.length) + ' chars';
+  }
+  /** A call that could not run: the row stays, marked, with everything the model wrote and the reason. */
+  function keepFailed(t, note, raw) {
+    if (t.timer) clearInterval(t.timer);
+    if (raw && !t.stream) { t.stream = el('pre', 'plain stream', ''); t.body.appendChild(t.stream); }
+    if (raw && t.stream) t.stream.textContent = fromMark(raw);   // the throttled display may be a few tokens behind: show all of it
+    var why = String(note).replace(/^bad tool call:\s*/, '');
+    t.ts.textContent = ''; t.tt.textContent = sec(Date.now() - t.t0);
+    t.sum.appendChild(el('span', 'tr', '\u2717 ' + (why.length > 70 ? why.slice(0, 70) + '\u2026' : why)));
+    if (t.stream) { var wrap = el('div', ''); wrap.appendChild(el('div', 'lbl', 'what the model wrote (' + kfmt(t.stream.textContent.length) + ' chars; select and copy it if you want it)')); t.body.replaceChild(wrap, t.stream); wrap.appendChild(t.stream); }
+    var prob = el('div', ''); plain(prob, 'problem', why); t.body.appendChild(prob);
+    t.det.classList.remove('running'); t.det.classList.add('err'); t.det.open = false;
+  }
+  /** Readable arguments: code keeps its line breaks. */
+  function fmtArgs(args) {
+    return Object.keys(args || {}).map(function (k) { var v = args[k]; return k + ': ' + (typeof v === 'string' ? (v.indexOf('\n') >= 0 ? '\n' + v : v) : JSON.stringify(v)); }).join('\n');
+  }
+  /** The call has been read: show it in full now, while it runs (or waits for you). */
+  function callRead(a, e) {
+    var c = a.cur || (a.cur = { n: e.n, buf: '', mode: 'tool', tool: null, thinkDet: null });
+    var t = c.tool || (c.tool = makeTool(a.box)), src = toolSource[e.call.name];
+    t.tn.textContent = e.call.name; if (src && src !== 'builtin') t.tn.appendChild(el('small', '', 'mcp \u00b7 ' + src));
+    t.ta.textContent = toolText(e.call); t.ts.textContent = 'running\u2026'; t.det.open = true;
+    if (t.stream) { t.stream.remove(); t.stream = null; }
+    if (!t.callBox) { t.callBox = el('div', ''); t.body.insertBefore(t.callBox, t.body.firstChild); }
+    t.callBox.textContent = ''; plain(t.callBox, 'call' + (e.call.repaired ? ' \u00b7 repaired' : ''), fmtArgs(e.call.args));
+  }
+
+  /* --- the main conversation's reply streams into the chat as it is written --- */
+  function ensureLive() {
+    if (live) return live;
+    var bubble = add('bot', ''), speed = el('div', 'speed', ''); log.appendChild(speed);
+    live = { bubble: bubble, speed: speed };
+    return live;
+  }
+  function liveRate(c) {
+    if (!live) return;
+    var now = Date.now(); c.n = (c.n || 0) + 1; c.tok0 = c.tok0 || now;
+    if (c.n > 4 && now - (c.paint || 0) > 400) { c.paint = now; live.speed.textContent = 'decoding ~' + f1(c.n / ((now - c.tok0) / 1000)) + ' tok/s'; }
+  }
+  function finalizeSpeed(el_) {
+    var pre = q && q.preMs ? q.preTok / (q.preMs / 1000) : null, dec = q && q.decMs ? q.decTok / (q.decMs / 1000) : null;
+    el_.textContent = q ? 'prefill ' + f1(pre) + ' \u00b7 decode ' + f1(dec) + ' tok/s \u00b7 ' + sec(Date.now() - q.t0) : '';
+  }
+  function dropLive(prose) {
+    if (!live) return;
+    live.bubble.remove(); live.speed.remove(); live = null;
+    if (prose && trace) trace.agents[0].box.appendChild(el('div', 'line', prose));
+  }
+  function mainContent(c, text) {
+    c.buf += text;
+    if (c.mode === 'tool') { streamTool(c); return; }
+    var t = c.buf.replace(/^\s+/, '');
+    if (c.mode === 'undecided') {
+      if (markAt(t) === 0) { c.mode = 'tool'; c.tool = makeTool(trace.agents[0].box); streamTool(c); return; }
+      if (partialMark(t) === t.length) return;                           // could still turn into a tool call
+      c.mode = 'answer';
+    }
+    var i = markAt(c.buf);
+    if (i >= 0) { // some words, then a tool call: the words were narration, not the answer
+      c.mode = 'tool'; dropLive(c.buf.slice(0, i).trim()); c.tool = makeTool(trace.agents[0].box); streamTool(c); return;
+    }
+    var k = partialMark(c.buf);                                           // hold back a half-written "<tool_ca" / "<funct"
+    var shown = c.buf.slice(0, c.buf.length - k).replace(/^\s+/, '');
+    if (!shown) return;
+    var was = nearBottom(); renderMd(ensureLive().bubble, shown); keepDown(was);
+  }
+  /** The text from the first tool-call tag on (the call itself, tags included). */
+  function fromMark(s) { var i = markAt(s); return i > 0 ? s.slice(i) : s; }
+  /** A tool call starts with <tool_call>, or with a bare <function=NAME> (some models leave the wrapper out). */
+  var MARKS = ['<tool_call>', '<function='], MARK_RE = /<(?:tool)+[_-]?call>|<function=/;
+  function markAt(s) { var m = MARK_RE.exec(s); return m ? m.index : -1; }
+  /** How many characters at the end of s could be the start of a marker. */
+  function partialMark(s) {
+    var k = 0;
+    MARKS.forEach(function (m) { var n = Math.min(m.length - 1, s.length); while (n > 0 && m.indexOf(s.slice(s.length - n)) !== 0) n--; if (n > k) k = n; });
+    return k;
+  }
+  function thinkIn(a, c, text) {
+    var now = Date.now();
+    if (!c.thinkDet) {
+      c.thinkDet = el('details', 'think'); c.thinkDet.open = true; c.thinkSum = el('summary', '', 'thinking\u2026');
+      c.thinkDet.appendChild(c.thinkSum); c.thinkBody = el('div', 'thinking'); c.thinkDet.appendChild(c.thinkBody);
+      a.box.appendChild(c.thinkDet); c.think0 = now;
+    }
+    c.think1 = now; c.thinkBody.textContent += text; c.thinkBody.scrollTop = c.thinkBody.scrollHeight;
+  }
+  function line(a, text) { a.box.appendChild(el('div', 'line', text)); }
+
+  function onTrace(agent, e) {
+    var a = agentOf(agent), was = nearBottom();
+    if (e.type === 'start') {
+      if (agent === 0) ctxPending += (e.firstPromptBytes || 0) / 3.4;
+    } else if (e.type === 'turn') {
+      a.cur = { n: e.n, buf: '', mode: 'undecided', tool: null, thinkDet: null };
+      if (agent === 0) { renderCtx({ window: e.windowTokens || 0, context: e.contextLength || 0, pinned: e.pinnedTokens || 0, spilled: e.spilledTokens || 0 });
+        ctxGrow(Math.round(ctxPending), true); ctxPending = 0; }   // the message being read by the model now
+    } else if (e.type === 'token') {
+      if (!a.cur) a.cur = { n: 0, buf: '', mode: 'undecided', tool: null, thinkDet: null };
+      var c = a.cur;
+      if (agent === 0) { liveRate(c); ctxGrow(1); }
+      if (e.kind === 'reasoning') { if (agent === 0) thinkIn(a, c, e.text); }
+      else if (agent === 0) mainContent(c, e.text);
+    } else if (e.type === 'call') {
+      if (agent === 0) callRead(a, e);
+    } else if (e.type === 'step') {
+      closeStep(a, agent, e);
+    } else if (e.type === 'slide') {
+      line(a, 'window slid: ' + kfmt(e.spilledTokens) + ' tokens are on SSD now');
+    }
+    keepDown(was);
+  }
+  function closeStep(a, agent, e) {
+    var c = a.cur || { n: e.n, buf: '', mode: 'undecided', tool: null, thinkDet: null };
+    if (c.thinkDet) {   // "thinking\u2026" becomes "thought for 6s", collapsed
+      c.thinkSum.textContent = 'thought for ' + sec(Math.max(0, c.think1 - c.think0)); c.thinkDet.open = false;
+    } else if (agent === 0 && e.think && !e.reasoningChars) {
+      line(a, 'Think is on, but the server sent no reasoning for this step.');
+    }
+    if (e.call) {
+      if (agent === 0) {
+        var t = c.tool || makeTool(a.box);
+        fillTool(t.det, t.sum, t.body, e, Date.now() - t.t0, t); if (trace.names) trace.names.push(e.call.name);
+        trace.tools++;
+        Object.keys(trace.agents).forEach(function (k) { var h = trace.agents[k]; if (h.det) h.det.classList.remove('running'); });
+      } else {
+        var d = el('details', 'tool'), sm = el('summary', ''), bd = el('div', 'inner'); d.appendChild(sm); d.appendChild(bd);
+        a.box.appendChild(d); fillTool(d, sm, bd, e, e.totalMs);
+      }
+    } else if (e.note) {
+      if (c.tool) keepFailed(c.tool, e.note, c.buf);   // what the model wrote stays: you can open it and copy it
+      line(a, '\u26a0 ' + e.note);
+    } else if (c.tool) keepFailed(c.tool, 'the call was never completed', c.buf);
+    if (agent === 0) {
+      ctxPending += e.call ? (e.observationBytes || 0) / 3.4 + 12 : e.note ? 60 : 0;   // the tool result / error that is sent back next
+      var u = e.usage || {}, p = u.prompt_tokens, n = u.completion_tokens, decMs = e.totalMs - e.ttftMs;
+      if (p >= 30 && e.ttftMs > 0) { q.preTok += p; q.preMs += e.ttftMs; }   // tiny prompts only measure request overhead
+      if (n >= 3 && decMs > 0) { q.decTok += n - 1; q.decMs += decMs; }      // the first token arrives at ttft
+    } else {
+      a.steps++; a.st.textContent = plural(a.steps, 'step') + ' \u00b7 ' + sec(Date.now() - a.t0);
+    }
+    a.cur = null; traceSummary();
+  }
+
+  /* ---------- context bar under the text box ---------- */
+  var ctxExact = null, ctxExtra = 0, ctxPending = 0, ctxPaint = 0;
+  /** Exact numbers from the server: the bar shows them and drops any estimate. */
+  function renderCtx(c) { ctxExact = c; ctxExtra = 0; paintCtx(); }
+  /** Between exact numbers the bar grows by an estimate (a token per streamed piece, ~3.4 bytes per token of prompt), shown with a ~. */
+  function ctxGrow(tokens, force) {
+    if (!ctxExact) return;
+    ctxExtra += tokens; var now = Date.now();
+    if (force || now - ctxPaint > 120) { ctxPaint = now; paintCtx(); }
+  }
+  function paintCtx() {
+    var c = ctxExact; if (!c) return;
+    var cap = c.context || 0; if (!cap) return;
+    var raw = (c.window || 0) + ctxExtra, win = Math.min(raw, cap), pin = Math.min(c.pinned || 0, win);
+    $('ctxPin').style.width = (pin / cap * 100) + '%';
+    $('ctxUsed').style.width = ((win - pin) / cap * 100) + '%';
+    $('ctx').classList.toggle('warn', win / cap > 0.85);
+    $('ctxText').textContent = (ctxExtra > 0 ? '~' : '') + kfmt(Math.round(win)) + ' / ' + kfmt(cap) + (c.spilled ? ' \u00b7 ' + kfmt(c.spilled) + ' on SSD' : '');
+  }
+
+  /* ---------- markdown: what the model writes (headings, **bold**, *italic*, `code`, ``` blocks, lists, tables, quotes, links) ---------- */
+  /* Built with DOM nodes and textContent only, never innerHTML, so nothing the model writes can inject markup. */
+  var SAFE_URL = /^(https?:\/\/|mailto:)/i;
+  var INLINE = [
+    { re: /(`+)([\s\S]+?[^`])\1(?!`)|(`+)([^`])\3(?!`)/, run: function (p, m) { var c = el('code', '', (m[2] !== undefined ? m[2] : m[4]).replace(/^ (.*) $/, '$1')); p.appendChild(c); } },
+    { re: /\\([\\`*_{}\[\]()#+\-.!|~>])/, run: function (p, m) { p.appendChild(document.createTextNode(m[1])); } },
+    { re: /\[([^\]\n]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/, run: function (p, m) {
+        if (!SAFE_URL.test(m[2])) { inline(p, m[1]); return; }
+        var a = el('a'); a.href = m[2]; a.title = m[2]; inline(a, m[1]); p.appendChild(a); } },
+    { re: /https?:\/\/[^\s<>()\[\]]+[^\s<>()\[\].,;:!?'"]/, run: function (p, m) { var a = el('a', '', m[0]); a.href = m[0]; p.appendChild(a); } },
+    { re: /(\*\*\*|___)(?=\S)([\s\S]*?\S)\1/, run: function (p, m) { var b = el('strong'), i = el('em'); inline(i, m[2]); b.appendChild(i); p.appendChild(b); } },
+    { re: /\*\*(?=\S)([\s\S]*?\S)\*\*|(?<![\w])__(?=\S)([\s\S]*?\S)__(?![\w])/, run: function (p, m) { var b = el('strong'); inline(b, m[1] !== undefined ? m[1] : m[2]); p.appendChild(b); } },
+    { re: /~~(?=\S)([\s\S]*?\S)~~/, run: function (p, m) { var d = el('del'); inline(d, m[1]); p.appendChild(d); } },
+    { re: /\*(?=[^\s*])([^*\n]*?[^\s*])\*(?!\*)|\*([^\s*])\*(?!\*)|(?<![\w])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\w])/, run: function (p, m) { var e = el('em'); inline(e, m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]); p.appendChild(e); } },
+  ];
+  function inline(parent, text) {
+    while (text) {
+      var best = null, bi = Infinity;
+      for (var k = 0; k < INLINE.length; k++) {
+        var m = INLINE[k].re.exec(text);
+        if (m && m.index < bi) { bi = m.index; best = { r: INLINE[k], m: m }; }
+      }
+      if (!best) { parent.appendChild(document.createTextNode(text)); return; }
+      if (bi > 0) parent.appendChild(document.createTextNode(text.slice(0, bi)));
+      best.r.run(parent, best.m);
+      text = text.slice(bi + best.m[0].length);
+    }
+  }
+  /** Text with single line breaks kept as breaks (chat style). */
+  function inlineLines(parent, lines) {
+    lines.forEach(function (l, i) { if (i) parent.appendChild(document.createElement('br')); inline(parent, l.replace(/\s+$/, '')); });
+  }
+  function copyText(text, btn) {
+    var done = function () { var old = btn.textContent; btn.textContent = 'Copied'; btn.classList.add('ok'); setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1400); };
+    var fallback = function () {
+      var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = 'Press Ctrl+C'; }
+      t.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+  function codeBlock(lang, code) {
+    var box = el('div', 'codeblock'), head = el('div', 'codehead');
+    head.appendChild(el('span', 'lang', lang || 'code'));
+    var btn = el('button', 'copy secondary', 'Copy'); btn.type = 'button'; btn.title = 'Copy the code';
+    btn.addEventListener('click', function () { copyText(code, btn); });
+    head.appendChild(btn);
+    var pre = el('pre'), c = el('code', '', code); pre.appendChild(c);
+    box.appendChild(head); box.appendChild(pre);
+    return box;
+  }
+  var RE_FENCE = /^\s{0,3}(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/, RE_HEAD = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/, RE_HR = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
+  var RE_LIST = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/, RE_QUOTE = /^\s{0,3}>\s?(.*)$/, RE_SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+  function splitRow(l) { l = l.trim().replace(/^\|/, '').replace(/\|$/, ''); return l.split(/(?<!\\)\|/).map(function (c) { return c.trim().replace(/\\\|/g, '|'); }); }
+  function startsBlock(l, next) {
+    return RE_FENCE.test(l) || RE_HEAD.test(l) || RE_HR.test(l) || RE_QUOTE.test(l) || RE_LIST.test(l) || (l.indexOf('|') >= 0 && next !== undefined && RE_SEP.test(next) && next.indexOf('-') >= 0);
+  }
+  function parseBlocks(parent, lines) {
+    var i = 0;
+    while (i < lines.length) {
+      var l = lines[i], m;
+      if (!l.trim()) { i++; continue; }
+      if ((m = RE_FENCE.exec(l))) {                       // ``` or ~~~ code block (an unfinished one, while streaming, runs to the end)
+        var fence = m[1], body = [], j = i + 1;
+        while (j < lines.length && !(new RegExp('^\\s{0,3}' + (fence[0] === '`' ? '`' : '~') + '{' + fence.length + ',}\\s*$')).test(lines[j])) body.push(lines[j++]);
+        parent.appendChild(codeBlock(m[2], body.join('\n'))); i = j + 1; continue;
+      }
+      if ((m = RE_HEAD.exec(l))) { var h = el('h' + m[1].length); inline(h, m[2]); parent.appendChild(h); i++; continue; }
+      if (RE_HR.test(l)) { parent.appendChild(el('hr')); i++; continue; }
+      if (RE_QUOTE.test(l)) {
+        var q = [];
+        while (i < lines.length && (m = RE_QUOTE.exec(lines[i]))) { q.push(m[1]); i++; }
+        var bq = el('blockquote'); parseBlocks(bq, q); parent.appendChild(bq); continue;
+      }
+      if (l.indexOf('|') >= 0 && i + 1 < lines.length && RE_SEP.test(lines[i + 1]) && lines[i + 1].indexOf('-') >= 0) {   // table
+        var head = splitRow(l), seps = splitRow(lines[i + 1]), tbl = el('table'), thead = el('thead'), tr = el('tr');
+        var al = seps.map(function (c) { return /^:-*:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : /^:/.test(c) ? 'left' : ''; });
+        head.forEach(function (c, k) { var th = el('th'); inline(th, c); if (al[k]) th.style.textAlign = al[k]; tr.appendChild(th); });
+        thead.appendChild(tr); tbl.appendChild(thead);
+        var tb = el('tbody'); i += 2;
+        while (i < lines.length && lines[i].trim() && lines[i].indexOf('|') >= 0) {
+          var cells = splitRow(lines[i++]), r = el('tr');
+          head.forEach(function (_, k) { var td = el('td'); inline(td, cells[k] || ''); if (al[k]) td.style.textAlign = al[k]; r.appendChild(td); });
+          tb.appendChild(r);
+        }
+        tbl.appendChild(tb); var wrap = el('div', 'tablewrap'); wrap.appendChild(tbl); parent.appendChild(wrap); continue;
+      }
+      if ((m = RE_LIST.exec(l))) {                         // list, with nested lists and code under items
+        var base = m[1].replace(/\t/g, '    ').length, ordered = /\d/.test(m[2][0]), list = el(ordered ? 'ol' : 'ul');
+        if (ordered && parseInt(m[2], 10) !== 1) list.start = parseInt(m[2], 10);
+        var items = [];
+        while (i < lines.length) {
+          var cur = lines[i], lm = RE_LIST.exec(cur);
+          var lind = lm ? lm[1].replace(/\t/g, '    ').length : -1;
+          if (lm && lind >= base && lind <= base + 1) {
+            if (/\d/.test(lm[2][0]) !== ordered) break;   // a different kind of list starts here
+            items.push({ first: lm[3], rest: [] }); i++; continue;
+          }
+          if (!items.length) break;
+          if (!cur.trim()) {                               // a blank line stays in the list only if the list goes on after it
+            var nx = i + 1; while (nx < lines.length && !lines[nx].trim()) nx++;
+            if (nx < lines.length && (/^\s{2,}\S/.test(lines[nx]) || RE_LIST.test(lines[nx]))) { items[items.length - 1].rest.push(''); i++; continue; }
+            break;
+          }
+          if (/^\s{2,}\S/.test(cur) || lm) { items[items.length - 1].rest.push(cur); i++; continue; }
+          break;
+        }
+        items.forEach(function (it) {
+          var li = el('li'), first = it.first, task = /^\[([ xX])\]\s+/.exec(first);
+          if (task) { var cb = document.createElement('input'); cb.type = 'checkbox'; cb.disabled = true; cb.checked = task[1] !== ' '; li.appendChild(cb); first = first.slice(task[0].length); li.className = 'task'; }
+          if (RE_FENCE.test(first)) it.rest.unshift(first), first = '';
+          var span = el('span'); inline(span, first); li.appendChild(span);
+          var rest = it.rest, ind = Math.min.apply(null, rest.filter(function (x) { return x.trim(); }).map(function (x) { return x.match(/^\s*/)[0].length; }));
+          if (rest.length && isFinite(ind)) parseBlocks(li, rest.map(function (x) { return x.slice(Math.min(ind, x.match(/^\s*/)[0].length)); }));
+          list.appendChild(li);
+        });
+        parent.appendChild(list); continue;
+      }
+      var para = [l]; i++;                                 // paragraph: runs until a blank line or the start of another block
+      while (i < lines.length && lines[i].trim() && !startsBlock(lines[i], lines[i + 1])) para.push(lines[i++]);
+      var pe = el('p'); inlineLines(pe, para); parent.appendChild(pe);
+    }
+  }
+  function renderMd(target, text) {
+    var frag = document.createDocumentFragment();
+    parseBlocks(frag, String(text).replace(/\r\n?/g, '\n').split('\n'));
+    target.textContent = ''; target.appendChild(frag);
+    target.classList.add('md');
+  }
+
+  /* ---------- reply limit and "run to the end" ---------- */
+  var LIMITS = [[600, '600'], [1500, '1500'], [3000, '3000'], [6000, '6000'], [-1, 'Unlimited']];
+  function renderRun() {
+    var sel = $('replyLimit'), cur = values['answerTokens'], list = LIMITS.slice();
+    if (!list.some(function (x) { return x[0] === cur; }) && typeof cur === 'number') list.push([cur, String(cur)]);
+    list.sort(function (a, b) { return (a[0] < 0 ? 1e9 : a[0]) - (b[0] < 0 ? 1e9 : b[0]); });
+    sel.textContent = '';
+    list.forEach(function (x) { var o = document.createElement('option'); o.value = String(x[0]); o.textContent = 'Reply: ' + x[1]; sel.appendChild(o); });
+    sel.value = String(typeof cur === 'number' ? cur : 1500);
+    $('auto').checked = values['answerTokens'] === -1 && values['maxSteps'] === -1 && values['edits.approval'] === 'never';
+  }
+  $('replyLimit').addEventListener('change', function () {
+    var f = fields.filter(function (x) { return x.key === 'answerTokens'; })[0] || { key: 'answerTokens', applies: 'question' };
+    commit(f, Number($('replyLimit').value));
+    renderSettings(); // the Settings field (and its Unlimited box) show the same value
+  });
+  $('auto').addEventListener('change', function () { vscode.postMessage({ type: 'autoRun', on: $('auto').checked }); setTimeout(renderRun, 400); });
+
+  /* ---------- chats: transcript, sidebar ---------- */
+  function ago(t) {
+    var d = Math.max(0, Date.now() - t), min = Math.round(d / 60000);
+    if (min < 1) return 'just now'; if (min < 60) return min + ' min ago';
+    var hr = Math.round(min / 60); if (hr < 24) return hr + ' h ago';
+    var dy = Math.round(hr / 24); return dy < 30 ? dy + ' d ago' : new Date(t).toLocaleDateString();
+  }
+  function dayStart(t) { var d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function renderTitle() {
+    var c = chatState.chats.filter(function (x) { return x.id === chatState.id; })[0];
+    $('chatTitle').textContent = c ? c.title : ''; $('chatTitle').title = c ? c.title : '';
+  }
+  function openDrawer() { $('drawer').classList.remove('hidden'); $('scrim').classList.remove('hidden'); $('menu').classList.add('on'); $('dsearch').focus(); }
+  function closeDrawer() { $('drawer').classList.add('hidden'); $('scrim').classList.add('hidden'); $('menu').classList.remove('on'); }
+  $('menu').addEventListener('click', function () { if ($('drawer').classList.contains('hidden')) openDrawer(); else closeDrawer(); });
+  $('scrim').addEventListener('click', closeDrawer);
+  $('dclose').addEventListener('click', closeDrawer);
+  $('dnew').addEventListener('click', function () { vscode.postMessage({ type: 'newChat' }); showView('chat'); });
+  $('dsearch').addEventListener('input', renderDrawer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
+
+  function renderDrawer() {
+    var host = $('dlist'), q = $('dsearch').value.trim().toLowerCase();
+    $('dproj').textContent = chatState.project || 'Chats';
+    $('dproj').appendChild(el('small', '', 'chats in this folder'));
+    host.textContent = '';
+    var list = chatState.chats.filter(function (c) { return !q || c.title.toLowerCase().indexOf(q) >= 0 || (c.preview || '').toLowerCase().indexOf(q) >= 0; });
+    var today = dayStart(Date.now()), groups = [['Today', today], ['Yesterday', today - 86400000], ['Previous 7 days', today - 7 * 86400000], ['Older', -Infinity]], gi = -1;
+    if (!chatState.chats.length) host.appendChild(el('div', 'dempty', 'No saved chats yet. Ask something: the chat is saved as you go, and you can come back to it here.'));
+    else if (!list.length) host.appendChild(el('div', 'dempty', 'No chat matches \u201c' + q + '\u201d.'));
+    list.forEach(function (c) {
+      var g = groups.findIndex(function (x) { return c.updatedAt >= x[1]; });
+      if (g !== gi) { gi = g; host.appendChild(el('div', 'dgroup', groups[g][0])); }
+      host.appendChild(chatRow(c));
+    });
+  }
+  function chatRow(c) {
+    var row = el('div', 'crow2' + (c.id === chatState.id ? ' active' : '')), t = el('div', 'ct', c.title), m = el('div', 'cm', '');
+    row.tabIndex = 0; row.title = c.title + (c.preview ? '\n' + c.preview : '');
+    m.appendChild(document.createTextNode(plural(c.turns, 'message') + ' \u00b7 ' + ago(c.updatedAt)));
+    if (c.contextSavedAt) { var sv = el('span', 'saved', ' \u00b7 \u25cf context saved'); sv.title = 'The model\u2019s memory of this chat is stored (' + (c.contextBytes ? Math.round(c.contextBytes / 1048576) + ' MB, ' : '') + 'saved ' + ago(c.contextSavedAt) + '). Opening the chat continues exactly where it stopped.'; m.appendChild(sv); }
+    var acts = el('div', 'acts'), ren = el('button', '', '\u270e'), del = el('button', '', '\ud83d\uddd1');
+    ren.title = 'Rename'; del.title = 'Delete this chat'; ren.type = del.type = 'button';
+    ren.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var inp = document.createElement('input'); inp.type = 'text'; inp.className = 'rename'; inp.value = c.title;
+      row.replaceChild(inp, t); inp.focus(); inp.select();
+      var done = function (ok) { if (ok && inp.value.trim() && inp.value.trim() !== c.title) vscode.postMessage({ type: 'renameChat', id: c.id, title: inp.value.trim() }); else renderDrawer(); };
+      inp.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); });
+      inp.addEventListener('blur', function () { done(true); });
+      inp.addEventListener('click', function (e) { e.stopPropagation(); });
+    });
+    var armed = null;
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      if (armed) { clearTimeout(armed); vscode.postMessage({ type: 'deleteChat', id: c.id }); return; }
+      del.textContent = 'Delete?'; del.classList.add('sure');
+      armed = setTimeout(function () { armed = null; del.textContent = '\ud83d\uddd1'; del.classList.remove('sure'); }, 3000);
+    });
+    acts.appendChild(ren); acts.appendChild(del);
+    row.appendChild(t); row.appendChild(m); row.appendChild(acts);
+    row.addEventListener('click', function () { if (c.id !== chatState.id) vscode.postMessage({ type: 'openChat', id: c.id }); closeDrawer(); showView('chat'); });
+    row.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target === row) row.click(); });
+    return row;
+  }
+
+  /** Show a whole saved chat: your questions, the tools it used (folded), the answers. */
+  function renderChat(c) {
+    log.textContent = ''; trace = null; live = null; q = null;
+    chatState.id = c.id; chatState.title = c.title;
+    c.turns.forEach(function (t) {
+      add('user', t.q);
+      if (t.tools && t.tools.length) {
+        var d = el('details', 'trace'), body = el('div', 'inner');
+        var tnames = t.tools.map(function (x) { return x.name; }), parts = [tnames.slice(0, 5).join(' \u2192 ') + (tnames.length > 5 ? ' \u2192 \u2026' : ''), plural(t.tools.length, 'tool call')]; if (t.helpers) parts.push(plural(t.helpers, 'helper')); if (t.seconds) parts.push(sec(t.seconds * 1000));
+        d.appendChild(el('summary', '', parts.join(' \u00b7 '))); d.appendChild(body); log.appendChild(d);
+        t.tools.forEach(function (tc) {
+          var det = el('details', 'tool'), sm = el('summary', ''), bd = el('div', 'inner'); det.appendChild(sm); det.appendChild(bd); body.appendChild(det);
+          fillTool(det, sm, bd, { call: { name: tc.name, args: tc.args }, observation: tc.result, observationBytes: tc.bytes, source: tc.source }, tc.ms);
+        });
+      }
+      if (t.state === 'done' || (t.state === 'error' && t.a)) {
+        if (t.state === 'error') addErr(t.a);
+        else { renderMd(add('bot', ''), t.a + (t.truncated ? '\n\n(Cut off at the token limit.)' : '')); var sp = el('div', 'speed', t.speed || ''); log.appendChild(sp); }
+      } else {
+        log.appendChild(el('div', 'speed', 'stopped before it answered'));
+      }
+    });
+    if (!c.turns.length) log.appendChild(el('div', 'welcome', 'Ask about ' + (chatState.project || 'this project') + '.\nYour chats are saved as you go: open the list with \u2630.'));
+    log.scrollTop = log.scrollHeight;
+    renderTitle(); renderDrawer();
+  }
+
+  /* ---------- approvals for MCP tools ---------- */
+  var cards = {};
+  function showApproval(m) {
+    var card = el('div', 'msg approval'), head = el('div', 'ah', '');
+    if (m.server) { head.appendChild(document.createTextNode('Allow the tool ')); head.appendChild(el('b', '', m.tool)); head.appendChild(document.createTextNode(' (MCP server \u201c' + m.server + '\u201d) to run?')); }
+    else { head.appendChild(document.createTextNode('Allow ')); head.appendChild(el('b', '', m.tool)); head.appendChild(document.createTextNode(' to change your files?')); }
+    // readable, not JSON: code keeps its line breaks
+    var args = Object.keys(m.args).map(function (k) { var v = m.args[k]; return k + ': ' + (typeof v === 'string' ? (v.indexOf('\n') >= 0 ? '\n' + v : v) : JSON.stringify(v)); }).join('\n');
+    card.appendChild(head); card.appendChild(el('pre', '', args.length > 1500 ? args.slice(0, 1500) + '\n\u2026 (' + (args.length - 1500) + ' more characters)' : args));
+    var btns = el('div', 'abtn');
+    [['Allow once', 'once', ''], ['Always allow', 'always', 'secondary'], ['Deny', 'deny', 'deny']].forEach(function (b) {
+      var x = el('button', b[2], b[0]); x.type = 'button';
+      x.addEventListener('click', function () { cards[m.id].choice = b[0]; vscode.postMessage({ type: 'approve', id: m.id, decision: b[1] }); });
+      btns.appendChild(x);
+    });
+    card.appendChild(btns); cards[m.id] = { card: card, btns: btns, choice: '' };
+    var rt = trace && trace.agents[0].cur && trace.agents[0].cur.tool; if (rt) { rt.ts.textContent = 'waiting for you\u2026'; cards[m.id].row = rt; }
+    log.appendChild(card); log.scrollTop = log.scrollHeight;
+  }
+  function doneApproval(id) {
+    var c = cards[id]; if (!c) return;
+    c.btns.replaceWith(el('div', 'done', c.choice ? c.choice : 'Cancelled'));
+    if (c.row && c.choice !== 'Deny') c.row.ts.textContent = 'running\u2026';
+    delete cards[id];
+  }
+
+  /* ---------- the tools view ---------- */
+  var toolsInfo = null, openSig = {};
+  function renderTools(info) {
+    toolsInfo = info; toolSource = {};
+    info.tools.forEach(function (t) { toolSource[t.name] = t.source === 'mcp' ? t.server : 'builtin'; });
+    var on = info.tools.filter(function (t) { return t.inPrompt; }).length;
+    $('toolsCount').textContent = plural(on, 'tool');
+    var sum = $('toolsSum'); sum.textContent = '';
+    sum.appendChild(document.createTextNode(plural(on, 'tool') + ' offered to the model \u00b7 tool list in the system prompt: ' + (info.promptBytes / 1024).toFixed(1) + ' KB'));
+    if (info.mcpEnabled) sum.appendChild(document.createTextNode(' (MCP tools may use up to ' + (info.mcpBudget / 1024).toFixed(1) + ' KB)'));
+    var left = info.tools.filter(function (t) { return t.enabled && !t.inPrompt; }).length;
+    if (left) sum.appendChild(el('div', 'warn', plural(left, 'enabled tool') + ' did not fit the size limit and are not offered. Turn some off, or raise \u201cMCP tool list size\u201d in Settings.'));
+    if (!info.mcpEnabled) sum.appendChild(el('div', '', 'MCP is switched off in Settings.'));
+    info.configErrors.forEach(function (e) { sum.appendChild(el('div', 'warn', e)); });
+
+    var host = $('toolsList'); host.textContent = '';
+    var groupOf = {}; info.tools.forEach(function (t) { var k = t.source === 'mcp' ? 'mcp:' + t.server : 'builtin'; (groupOf[k] = groupOf[k] || []).push(t); });
+    var header = function (title, sub, status) {
+      var g = el('div', 'tgroup'); if (status) g.appendChild(el('span', 'sdot ' + status)); g.appendChild(el('span', '', title)); if (sub) g.appendChild(el('span', 'tsub', sub)); host.appendChild(g);
+    };
+    header('Built-in', 'work on the files of this project; write_file and edit_file change them');
+    (groupOf['builtin'] || []).forEach(function (t) { host.appendChild(toolRow(t, info)); });
+    if (info.mcpEnabled) {
+      if (!info.servers.length) {
+        host.appendChild(el('div', 'tgroup', 'MCP servers'));
+        host.appendChild(el('div', 'tnote', 'No MCP servers configured. \u201cMCP servers config\u201d creates .bluecheese/mcp.json with an example; .mcp.json and .vscode/mcp.json are read too. Servers start when BlueCheese is switched on, after you allow them.'));
+      }
+      info.servers.forEach(function (sv) {
+        header(sv.name, sv.transport + ' \u00b7 ' + (sv.status === 'ready' ? plural(sv.tools, 'tool') : sv.status), sv.status);
+        host.appendChild(el('div', 'tnote', sv.target + '  \u2014  ' + sv.file + (sv.version ? '  \u2014  v' + sv.version : '')));
+        if (sv.error) host.appendChild(el('div', 'tnote err', sv.error));
+        else if (sv.status === 'off') host.appendChild(el('div', 'tnote', 'Starts when BlueCheese is switched on.'));
+        (groupOf['mcp:' + sv.name] || []).forEach(function (t) { host.appendChild(toolRow(t, info)); });
+      });
+    }
+  }
+  function toolRow(t, info) {
+    var row = el('div', 'trow' + (t.enabled ? '' : ' off')), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = t.enabled; cb.title = t.enabled ? 'Turn this tool off' : 'Turn this tool on';
+    cb.addEventListener('change', function () { vscode.postMessage({ type: 'setTool', name: t.name, enabled: cb.checked }); });
+    var body = el('div', 'tb'), line = el('div', 'tl'), nm = el('span', 'tname', t.name);
+    var sig = el('div', 'tsig hidden', t.name + '(' + t.signature + ')');
+    nm.title = 'Show how the model calls it'; nm.addEventListener('click', function () { sig.classList.toggle('hidden'); });
+    line.appendChild(nm);
+    if (t.readOnly) line.appendChild(el('span', 'bdg ro', 'read-only'));
+    if (t.source === 'mcp' || !t.readOnly) {
+      var ask = el('span', 'bdg ask', t.auto ? 'runs without asking' : 'asks first'); line.appendChild(ask);
+      if (t.auto && !t.readOnly && (t.source === 'mcp' ? info.approval : info.editApproval) !== 'never') { var rv = el('button', 'tiny secondary', 'revoke'); rv.type = 'button'; rv.title = 'Ask before this tool runs again'; rv.addEventListener('click', function () { vscode.postMessage({ type: 'revokeAuto', name: t.name }); }); line.appendChild(rv); }
+    }
+    if (t.enabled && !t.inPrompt) line.appendChild(el('span', 'bdg warn', 'not offered: too big'));
+    if (t.calls) line.appendChild(el('span', 'bdg use', 'used \u00d7' + t.calls + ' in this chat'));
+    body.appendChild(line); body.appendChild(el('div', 'tdesc', t.description)); body.appendChild(sig);
+    row.appendChild(cb); row.appendChild(body);
+    return row;
+  }
+
+  /* ---------- messages from the extension ---------- */
+  window.addEventListener('message', function (ev) {
+    var m = ev.data;
+    switch (m.type) {
+      case 'busy': setBusy(m.busy); break;
+      case 'status': status = m.text; break;
+      case 'power': power = m.info; renderPower(); break;
+      case 'schema': fields = m.fields; values = m.values; renderSettings(); break;
+      case 'values': {
+        var differs = Object.keys(m.values).some(function (k) { return JSON.stringify(m.values[k]) !== JSON.stringify(values[k]); });
+        values = m.values; if (differs) renderSettings(); break;
+      }
+      case 'project':
+        $('project').classList.remove('hidden');
+        $('project').textContent = m.name ? 'Project: ' + m.name + '  ' + m.path : (m.note || 'No project folder.');
+        $('project').title = m.path || ''; break;
+      case 'progress': break; // the same information, with more detail, arrives as 'trace'
+      case 'trace': onTrace(m.agent, m.event); break;
+      case 'context': renderCtx(m); break;
+      case 'answer': {
+        var txt = m.text + (m.truncated ? '\n\n(Cut off at the token limit. Ask "continue" for the rest.)' : '');
+        var sp;
+        if (live) { renderMd(live.bubble, txt); sp = live.speed; live = null; }   // it has been streaming: just make it final
+        else { renderMd(add('bot', ''), txt); sp = el('div', 'speed', ''); log.appendChild(sp); }
+        finalizeSpeed(sp); finishTrace(); log.scrollTop = log.scrollHeight; break;
+      }
+      case 'error': addErr(m.text); break;
+      case 'prefill': box.value = m.text; box.focus(); break;
+      case 'chats': chatState.project = m.project; chatState.id = m.activeId; chatState.chats = m.chats; renderDrawer(); renderTitle(); break;
+      case 'chat': renderChat(m.chat); break;
+      case 'tools': renderTools(m.info); break;
+      case 'approval': showApproval(m); break;
+      case 'approvalDone': doneApproval(m.id); break;
+    }
+  });
+  renderPower();
+  vscode.postMessage({ type: 'ready' });
+</script>
+</body>
+</html>

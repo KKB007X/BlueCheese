@@ -1,0 +1,14 @@
+{
+  "runtime": {
+    "image": "roaster:dev",
+    "socketDir": "/tmp/roaster",
+    "socketName": "roaster.sock",
+    "basePort": 8080,
+    "maxApis": 3
+  },
+  "profiles": {
+    "default": { "context": 8192, "maxTokens": 1024, "cacheRoute": true, "think": false },
+    "quality": { "context": 8192, "maxTokens": 1024, "cacheRoute": false, "routeJ": 4 },
+    "big":     { "context": 16384, "maxTokens": 1024, "cacheRoute": true }
+  }
+}

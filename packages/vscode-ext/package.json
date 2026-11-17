@@ -1,0 +1,599 @@
+{
+  "name": "bluecheese-vscode",
+  "displayName": "BlueCheese",
+  "description": "A local-model coding assistant for Roaster: saved chats, MCP tools, read-only code tools, and file writing with approval (you run roaster serve; BlueCheese is the client)",
+  "version": "0.0.8",
+  "publisher": "bluecheese",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "package:offline": "node esbuild.mjs --production && python3 scripts/make-vsix.py"
+  },
+  "devDependencies": {
+    "@bluecheese/agent": "workspace:*",
+    "@bluecheese/core": "workspace:*",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bluecheese",
+          "title": "BlueCheese",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bluecheese": [
+        {
+          "type": "webview",
+          "id": "bluecheese.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bluecheese.focus",
+        "title": "BlueCheese: Open Chat"
+      },
+      {
+        "command": "bluecheese.askSelection",
+        "title": "BlueCheese: Ask About Selection"
+      },
+      {
+        "command": "bluecheese.stopApi",
+        "title": "BlueCheese: Stop Roaster API"
+      },
+      {
+        "command": "bluecheese.stopAllApis",
+        "title": "BlueCheese: Stop All BlueCheese API Containers"
+      },
+      {
+        "command": "bluecheese.togglePower",
+        "title": "BlueCheese: Switch On/Off"
+      },
+      {
+        "command": "bluecheese.powerOn",
+        "title": "BlueCheese: Switch On"
+      },
+      {
+        "command": "bluecheese.powerOff",
+        "title": "BlueCheese: Switch Off"
+      },
+      {
+        "command": "bluecheese.restart",
+        "title": "BlueCheese: Restart (apply settings)"
+      },
+      {
+        "command": "bluecheese.newChat",
+        "title": "BlueCheese: New Chat"
+      },
+      {
+        "command": "bluecheese.openMcpConfig",
+        "title": "BlueCheese: Open MCP Servers Config"
+      },
+      {
+        "command": "bluecheese.reloadMcp",
+        "title": "BlueCheese: Reload MCP Servers"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "bluecheese.askSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@99"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "BlueCheese",
+      "properties": {
+        "bluecheese.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Folder BlueCheese analyzes. Empty = the folder open in VS Code (the first one in a multi-root workspace). Absolute path, or starting with ~/ .",
+          "x-group": "Slots & connection",
+          "x-label": "Project folder",
+          "x-applies": "restart"
+        },
+        "bluecheese.slots": {
+          "type": "integer",
+          "default": 4,
+          "description": "How many slots BlueCheese may use at once: 1 for the main conversation plus (slots − 1) helpers for subtasks. Keep the rest of your server's --max-slots free for other work. Lowering it closes idle helpers at once.",
+          "x-group": "Slots & connection",
+          "x-label": "Slots to use",
+          "minimum": 1,
+          "maximum": 16,
+          "x-step": 1,
+          "x-applies": "live",
+          "x-panel": false
+        },
+        "bluecheese.helpers.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the model hand focused code-reading questions to helpers (the extra slots), so the main conversation stays small. Needs at least 2 slots.",
+          "x-group": "Slots & connection",
+          "x-label": "Use helper slots for subtasks",
+          "x-applies": "live"
+        },
+        "bluecheese.helpers.context": {
+          "type": "integer",
+          "default": 8192,
+          "description": "Context window of each helper, in tokens (about 40 KB of RAM per token). Applied to the helpers that already exist, without losing what they read.",
+          "x-group": "Slots & connection",
+          "x-label": "Helper context length",
+          "minimum": 1024,
+          "maximum": 65536,
+          "x-step": 1024,
+          "x-applies": "live"
+        },
+        "bluecheese.helpers.maxSteps": {
+          "type": "integer",
+          "default": 4,
+          "description": "Tool calls a helper may make per question. Unlimited removes the cap (a helper that repeats the same call is still stopped).",
+          "x-group": "Slots & connection",
+          "x-label": "Helper tool steps",
+          "minimum": -1,
+          "maximum": 100,
+          "x-step": 1,
+          "x-applies": "live",
+          "x-min": 1,
+          "x-special": [
+            {
+              "value": -1,
+              "label": "Unlimited"
+            }
+          ]
+        },
+        "bluecheese.helpers.branches": {
+          "type": "integer",
+          "default": 0,
+          "description": "Most questions the model may send to the helpers in one explore call. \"Same as slots\" (the default) = the Slots setting. If there are fewer helpers than questions, the helpers take them in turn.",
+          "x-group": "Slots & connection",
+          "x-label": "Helper branches per call",
+          "minimum": -1,
+          "maximum": 64,
+          "x-step": 1,
+          "x-min": 1,
+          "x-numDefault": 4,
+          "x-special": [
+            {
+              "value": 0,
+              "label": "Same as slots"
+            },
+            {
+              "value": -1,
+              "label": "Unlimited"
+            }
+          ],
+          "x-applies": "live"
+        },
+        "bluecheese.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Connect automatically when VS Code starts, if it was on last time.",
+          "x-group": "Slots & connection",
+          "x-label": "Connect at startup",
+          "x-applies": "live"
+        },
+        "bluecheese.api.context": {
+          "type": "integer",
+          "default": 16384,
+          "description": "Context window of the conversation, in tokens. Costs about 40 KB of RAM per token. Change it any time: a larger window brings slid-out context back from SSD, a smaller one moves the oldest tokens out to SSD.",
+          "x-group": "API & context",
+          "x-label": "Context length",
+          "minimum": 1024,
+          "maximum": 131072,
+          "x-step": 1024,
+          "x-applies": "live"
+        },
+        "bluecheese.api.maxTokens": {
+          "type": "integer",
+          "default": 1024,
+          "description": "Default max tokens per reply of the API container. BlueCheese sends its own reply limit with every request, so this rarely matters.",
+          "x-group": "API & context",
+          "x-label": "API max tokens",
+          "minimum": 64,
+          "maximum": 16384,
+          "x-step": 64,
+          "x-applies": "restart"
+        },
+        "bluecheese.api.cacheRoute": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prefer experts already in RAM: faster, may reduce quality a little.",
+          "x-group": "API & context",
+          "x-label": "Cache-aware routing",
+          "x-applies": "live"
+        },
+        "bluecheese.api.routeJ": {
+          "type": "integer",
+          "default": 2,
+          "description": "Top experts that are never swapped out for cached ones (raise it if answers get worse).",
+          "x-group": "API & context",
+          "x-label": "Route: exact experts",
+          "minimum": 0,
+          "maximum": 8,
+          "x-step": 1,
+          "x-applies": "live"
+        },
+        "bluecheese.api.routeM": {
+          "type": "integer",
+          "default": 12,
+          "description": "How far down the ranking to look for cached substitutes.",
+          "x-group": "API & context",
+          "x-label": "Route: search depth",
+          "minimum": 8,
+          "maximum": 256,
+          "x-step": 1,
+          "x-applies": "live"
+        },
+        "bluecheese.api.routeAlpha": {
+          "type": "number",
+          "default": 1,
+          "description": "Weight of substituted experts (lower trusts them less).",
+          "x-group": "API & context",
+          "x-label": "Route: substitute weight",
+          "minimum": 0,
+          "maximum": 1,
+          "x-step": 0.05,
+          "x-applies": "live",
+          "x-slider": true
+        },
+        "bluecheese.api.routeP": {
+          "type": "number",
+          "default": 0,
+          "description": "Limit the window by router probability mass. 0 = off.",
+          "x-group": "API & context",
+          "x-label": "Route: probability mass",
+          "minimum": 0,
+          "maximum": 1,
+          "x-step": 0.05,
+          "x-applies": "live",
+          "x-slider": true
+        },
+        "bluecheese.api.slide": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the context window is full, slide it instead of resetting: the oldest part moves to your SSD (about 40 KB per token, in roaster serve's state directory) and the system prompt stays pinned. Turn off to get the old behaviour (reset with a short recap).",
+          "x-group": "API & context",
+          "x-label": "Context sliding",
+          "x-applies": "live"
+        },
+        "bluecheese.api.keep": {
+          "type": "integer",
+          "default": 64,
+          "description": "Tokens at the start of the conversation that never slide out (at most half of the window). The pinned system prompt is kept on top of this.",
+          "x-group": "API & context",
+          "x-label": "Kept at the start (tokens)",
+          "minimum": 0,
+          "maximum": 8192,
+          "x-step": 16,
+          "x-applies": "live"
+        },
+        "bluecheese.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "The instructions the model always sees, pinned at the start of the conversation. Leave empty to use the built-in prompt. The tool list is added after your text automatically, so you only write the guidance. A change applies to the next chat (use \"Apply to a new chat\"). Keep it short: it uses context on every conversation.",
+          "x-group": "System prompt",
+          "x-label": "System prompt",
+          "x-multiline": true,
+          "x-applies": "reset"
+        },
+        "bluecheese.maxSteps": {
+          "type": "integer",
+          "default": 8,
+          "description": "Tool calls allowed per question before the model must answer. 0 = answer without tools. Unlimited removes the cap (a model that repeats the same call is still stopped, and Stop always works). Applies even to a question that is running.",
+          "x-group": "Agent & sampling",
+          "x-label": "Max tool steps",
+          "minimum": -1,
+          "maximum": 100,
+          "x-step": 1,
+          "x-applies": "live",
+          "x-min": 0,
+          "x-special": [
+            {
+              "value": -1,
+              "label": "Unlimited"
+            }
+          ]
+        },
+        "bluecheese.observationBytes": {
+          "type": "integer",
+          "default": 1200,
+          "description": "Largest tool result in bytes (about 500 tokens per 1.1 KB of code).",
+          "x-group": "Agent & sampling",
+          "x-label": "Tool result size (bytes)",
+          "minimum": 400,
+          "maximum": 6000,
+          "x-step": 100,
+          "x-applies": "question"
+        },
+        "bluecheese.answerTokens": {
+          "type": "integer",
+          "default": 1500,
+          "description": "Token limit for each reply (thinking counts too). A tool call that writes a file is one reply: about 12 tokens per line of code, so 1500 is roughly 100 lines; a call that hits the limit is cut off and does not run (the model is told to write less and use append). Unlimited lets a reply run until the model ends it or you press Stop; with sliding on (the default) it can never run out of room.",
+          "x-group": "Agent & sampling",
+          "x-label": "Reply token limit",
+          "minimum": -1,
+          "maximum": 16000,
+          "x-step": 50,
+          "x-applies": "live",
+          "x-min": 100,
+          "x-special": [
+            {
+              "value": -1,
+              "label": "Unlimited"
+            }
+          ]
+        },
+        "bluecheese.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "description": "Sampling temperature. Low = more deterministic.",
+          "x-group": "Agent & sampling",
+          "x-label": "Temperature",
+          "minimum": 0,
+          "maximum": 2,
+          "x-step": 0.05,
+          "x-applies": "live",
+          "x-slider": true
+        },
+        "bluecheese.topP": {
+          "type": "number",
+          "default": 0.95,
+          "description": "Nucleus sampling.",
+          "x-group": "Agent & sampling",
+          "x-label": "Top-p",
+          "minimum": 0.05,
+          "maximum": 1,
+          "x-step": 0.05,
+          "x-applies": "live",
+          "x-slider": true
+        },
+        "bluecheese.topK": {
+          "type": "integer",
+          "default": 20,
+          "description": "Sample only from the K likeliest tokens.",
+          "x-group": "Agent & sampling",
+          "x-label": "Top-k",
+          "minimum": 1,
+          "maximum": 200,
+          "x-step": 1,
+          "x-applies": "live"
+        },
+        "bluecheese.think": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let the model reason before replying. Slower, and the reasoning uses context and counts toward the reply token limit. This is the Think toggle next to the chat box; it applies to the very next step, even in a question that is running.",
+          "x-group": "Agent & sampling",
+          "x-label": "Thinking",
+          "x-applies": "live",
+          "x-panel": false
+        },
+        "bluecheese.idleMinutes": {
+          "type": "integer",
+          "default": 0,
+          "description": "Stop the API container after this many idle minutes (0 = never). The chat is saved first, so you can carry on later.",
+          "x-group": "Agent & sampling",
+          "x-label": "Stop API when idle (min)",
+          "minimum": 0,
+          "maximum": 240,
+          "x-step": 5,
+          "x-applies": "live",
+          "x-min": 1,
+          "x-numDefault": 30,
+          "x-special": [
+            {
+              "value": 0,
+              "label": "Never"
+            }
+          ]
+        },
+        "bluecheese.focusActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tell the model which file is open in the editor when you ask a question.",
+          "x-group": "Agent & sampling",
+          "x-label": "Focus the active file",
+          "x-applies": "live"
+        },
+        "bluecheese.chats.saveContext": {
+          "type": "string",
+          "enum": [
+            "afterEachAnswer",
+            "whenLeaving",
+            "never"
+          ],
+          "x-enumLabels": [
+            "After every answer",
+            "When I leave the chat",
+            "Never (text only)"
+          ],
+          "default": "afterEachAnswer",
+          "description": "The chat text is always saved in <project>/.bluecheese/chats. This is about the model's own memory of the chat (its context): stored by roaster serve so a chat can continue exactly where it stopped. It takes about 40 KB per context token plus 65 MB per chat. 'Never' continues old chats from a short recap instead.",
+          "x-group": "Chats & history",
+          "x-label": "Save the context",
+          "x-applies": "live"
+        },
+        "bluecheese.chats.reuseSystemPrompt": {
+          "type": "boolean",
+          "default": true,
+          "description": "A new chat starts from a stored copy of the model's KV cache for the system prompt and tool list, instead of reading them again (about 1.5k tokens, over a minute). The first new chat reads them once and stores the cache (about 125 MB, replaced when the prompt or the tools change); every later new chat restores it. Needs \"Save the context\" to be on. If anything goes wrong the prompt is simply sent with the first question.",
+          "x-group": "Chats & history",
+          "x-label": "Reuse the system prompt cache",
+          "x-applies": "reset"
+        },
+        "bluecheese.chats.serverDir": {
+          "type": "string",
+          "default": "/state/bluecheese",
+          "description": "Folder on the MODEL SERVER'S machine (inside its container, if you use Docker) where contexts are stored. With the documented docker run this is a folder under the /state mount. If roaster serve uses --save-root, give the path relative to it.",
+          "x-group": "Chats & history",
+          "x-label": "Context folder on the server",
+          "x-applies": "live"
+        },
+        "bluecheese.chats.hostDir": {
+          "type": "string",
+          "default": "",
+          "description": "Optional. The same folder as seen from this computer (for example the host side of the /state mount plus /bluecheese). When set, deleting a chat also deletes its stored context.",
+          "x-group": "Chats & history",
+          "x-label": "Context folder on this computer",
+          "x-applies": "live"
+        },
+        "bluecheese.mcp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Connect the MCP servers listed in .bluecheese/mcp.json, .mcp.json or .vscode/mcp.json when BlueCheese is switched on, and offer their tools to the model. Each server asks for your permission the first time.",
+          "x-group": "Tools & MCP",
+          "x-label": "Use MCP servers",
+          "x-applies": "live"
+        },
+        "bluecheese.mcp.approval": {
+          "type": "string",
+          "enum": [
+            "readonly-auto",
+            "ask",
+            "never"
+          ],
+          "x-enumLabels": [
+            "Ask, except read-only tools",
+            "Ask every time",
+            "Never ask"
+          ],
+          "default": "readonly-auto",
+          "description": "When an MCP tool may run without asking you. Tools that declare themselves read-only are trusted in the first mode. \"Always allow\" in a prompt adds a tool to the allowed list.",
+          "x-group": "Tools & MCP",
+          "x-label": "Ask before MCP tools run",
+          "x-applies": "live"
+        },
+        "bluecheese.edits.approval": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "never"
+          ],
+          "x-enumLabels": [
+            "Ask before every change",
+            "Never ask"
+          ],
+          "default": "ask",
+          "description": "write_file and edit_file create and change files in your project. By default a prompt shows the change first (Allow once / Always allow / Deny). Choose \"Never ask\" only if you trust the model with your files and have them in git.",
+          "x-group": "Tools & MCP",
+          "x-label": "Ask before changing files",
+          "x-applies": "live"
+        },
+        "bluecheese.mcp.resultBytes": {
+          "type": "integer",
+          "default": 2400,
+          "minimum": 500,
+          "maximum": 12000,
+          "x-step": 100,
+          "description": "Largest MCP tool result given to the model, in bytes. Bigger results cost more prefill time and are cut.",
+          "x-group": "Tools & MCP",
+          "x-label": "MCP result size (bytes)",
+          "x-applies": "question"
+        },
+        "bluecheese.mcp.promptBytes": {
+          "type": "integer",
+          "default": 3500,
+          "minimum": 500,
+          "maximum": 8000,
+          "x-step": 100,
+          "description": "Room the MCP tools may take in the system prompt. Their descriptions are shortened; tools that still do not fit are left out and marked in the Tools list. A prompt may not exceed 16000 bytes in all.",
+          "x-group": "Tools & MCP",
+          "x-label": "MCP tool list size (bytes)",
+          "x-applies": "reset"
+        },
+        "bluecheese.mcp.autoApprove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tools (MCP or file-changing) that run without asking. Managed from the Tools list and the approval prompt.",
+          "x-group": "Tools & MCP",
+          "x-label": "Allowed MCP tools",
+          "x-applies": "live",
+          "x-panel": false
+        },
+        "bluecheese.tools.disabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tools the model is not offered (managed from the Tools list).",
+          "x-group": "Tools & MCP",
+          "x-label": "Disabled tools",
+          "x-applies": "reset",
+          "x-panel": false
+        },
+        "bluecheese.docker.image": {
+          "type": "string",
+          "default": "roaster:dev",
+          "description": "Docker image that contains the roaster binary.",
+          "x-group": "Docker",
+          "x-label": "Docker image",
+          "x-applies": "restart"
+        },
+        "bluecheese.docker.socketDir": {
+          "type": "string",
+          "default": "/tmp/roaster",
+          "description": "Host folder for the model server's socket (shared with the API container).",
+          "x-group": "Docker",
+          "x-label": "Socket folder",
+          "x-applies": "restart"
+        },
+        "bluecheese.docker.basePort": {
+          "type": "integer",
+          "default": 8080,
+          "description": "First host port to try for the API container.",
+          "x-group": "Docker",
+          "x-label": "First API port",
+          "minimum": 1024,
+          "maximum": 65000,
+          "x-step": 1,
+          "x-applies": "restart"
+        },
+        "bluecheese.docker.maxApis": {
+          "type": "integer",
+          "default": 3,
+          "description": "Hard limit on BlueCheese-managed API containers.",
+          "x-group": "Docker",
+          "x-label": "Max API containers",
+          "minimum": 1,
+          "maximum": 8,
+          "x-step": 1,
+          "x-applies": "restart"
+        },
+        "bluecheese.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Use a Roaster API that is already running instead of starting a container. Examples: http://127.0.0.1:8080 or just 127.0.0.1:8080 or 8080. Leave empty to let BlueCheese start its own API container.",
+          "x-group": "Docker",
+          "x-label": "Use existing API at",
+          "x-applies": "restart"
+        }
+      }
+    }
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ]
+}

@@ -305,7 +305,7 @@ For extension development, open the repository root in VS Code and press `F5`.
 
 ## License
 
-No license has been specified yet.
+Apache 2.0
 
 ---
 
